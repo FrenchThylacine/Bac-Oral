@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🎯 Bac Oral Studio - Elite Quality</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body data-theme="light">
+    <!-- ELITE QUALITY HEADER -->
+    <header class="elite-header">
+      <div class="header-content">
+        <div class="brand-section">
+          <div class="brand-icon">🎯</div>
+          <div class="brand-text">
+            <h1>Bac Oral Studio</h1>
+            <p class="tagline">Elite Quality • Co-created by Claude, Gemini, Codex & ChatGPT</p>
+          </div>
+        </div>
+
+        <div class="header-status">
+          <div class="status-item">
+            <span class="status-label">Autosave</span>
+            <span class="status-value active" id="autosave-status">● Actif</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Session</span>
+            <span class="status-value" id="session-status">● Nouvelle</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">AL Prêtes</span>
+            <span class="status-value" id="ready-count">0</span>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <button class="action-btn secondary" id="theme-toggle">
+            <span class="btn-icon">🌙</span>
+            Dark Mode
+          </button>
+          <button class="action-btn primary" id="quick-export">
+            <span class="btn-icon">📊</span>
+            Export Excel
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- PROGRESS BAR -->
+    <div class="progress-container">
+      <div class="progress-bar">
+        <div class="progress-fill" id="project-progress-bar" style="width: 0%"></div>
+      </div>
+      <span class="progress-label" id="project-progress-label">0%</span>
+    </div>
+
+    <!-- ELITE TAB NAVIGATION -->
+    <nav class="elite-tabs">
+      <div class="tab-container">
+        <button class="tab-btn active" data-tab="recap">
+          <span class="tab-icon">📚</span>
+          <span class="tab-text">Récapitulatif</span>
+          <span class="tab-badge" id="recap-badge">1</span>
+        </button>
+        <button class="tab-btn" data-tab="import">
+          <span class="tab-icon">📸</span>
+          <span class="tab-text">Import AL</span>
+          <span class="tab-badge" id="import-badge">2</span>
+        </button>
+        <button class="tab-btn" data-tab="processing">
+          <span class="tab-icon">⚡</span>
+          <span class="tab-text">Traitement</span>
+          <span class="tab-badge" id="processing-badge">3</span>
+        </button>
+        <button class="tab-btn" data-tab="preview">
+          <span class="tab-icon">👁️</span>
+          <span class="tab-text">Aperçu & Export</span>
+          <span class="tab-badge" id="preview-badge">4</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="main-content">
+      <div id="status-banner" class="status-banner"></div>
+
+      <!-- 1. RECAP TAB -->
+      <section class="tab-panel active" id="tab-recap">
+        <div class="panel-header">
+          <h2>📚 Étape 1: Import du Récapitulatif</h2>
+          <p class="panel-description">
+            Chargez le PDF du récapitulatif pour générer automatiquement la structure des séquences et AL.
+          </p>
+        </div>
+
+        <div class="content-grid">
+          <div class="main-card">
+            <div class="card-header">
+              <h3>Import PDF</h3>
+              <div class="status-indicator" id="recap-status">waiting</div>
+            </div>
+
+            <div class="upload-zone" id="recap-dropzone">
+              <input id="recap-file" type="file" accept="application/pdf" hidden />
+              <div class="upload-content">
+                <div class="upload-icon">📄</div>
+                <h4>Glissez votre PDF ici</h4>
+                <p>ou cliquez pour sélectionner le fichier</p>
+                <div class="upload-hint">
+                  Formats acceptés: PDF • Taille max: 50MB
+                </div>
+              </div>
+            </div>
+
+            <div class="card-actions">
+              <button class="btn primary" id="parse-recap" disabled>
+                <span class="btn-icon">🔍</span>
+                Analyser le PDF
+              </button>
+              <button class="btn secondary" id="reset-project">
+                <span class="btn-icon">🔄</span>
+                Réinitialiser
+              </button>
+            </div>
+          </div>
+
+          <div class="side-card">
+            <h3>Paramètres du Projet</h3>
+
+            <div class="form-group">
+              <label for="sequence-select">Séquence active</label>
+              <select id="sequence-select">
+                <option value="">Toutes les séquences</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="lecture-cursive">Lecture cursive</label>
+              <select id="lecture-cursive">
+                <option value="">Non spécifiée</option>
+                <option value="poesie">Poésie</option>
+                <option value="theatre">Théâtre</option>
+                <option value="roman">Roman</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Saisie manuelle (secours)</label>
+              <textarea
+                id="manual-recap"
+                placeholder="Collez le texte du récapitulatif si l'import PDF ne fonctionne pas..."
+                rows="6"
+              ></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-row">
+          <div id="recap-insights" class="summary-grid"></div>
+          <div id="sequence-summary" class="summary-grid"></div>
+        </div>
+
+        <!-- Sequence Preview -->
+        <div class="preview-section" id="sequence-preview" style="display: none;">
+          <h3>📋 Aperçu des Séquences Détectées</h3>
+          <div id="sequence-list" class="sequence-grid"></div>
+        </div>
+      </section>
+
+      <!-- 2. IMPORT TAB -->
+      <section class="tab-panel" id="tab-import">
+        <div class="panel-header">
+          <h2>📸 Étape 2: Import des Analyses Littéraires</h2>
+          <p class="panel-description">
+            Importez les photos de vos AL. L'IA détecte automatiquement le type et organise tout.
+          </p>
+        </div>
+
+        <div class="content-grid">
+          <div class="main-card">
+            <div class="card-header">
+              <h3>Upload des Images AL</h3>
+              <div class="upload-stats">
+                <span id="upload-count">0 fichiers</span>
+                <span id="ocr-progress">0% traité</span>
+              </div>
+            </div>
+
+            <div class="upload-zone multiple" id="al-dropzone">
+              <input id="al-files" type="file" accept="image/*" multiple hidden />
+              <div class="upload-content">
+                <div class="upload-icon">📸</div>
+                <h4>Glissez vos photos AL</h4>
+                <p>ou cliquez pour sélectionner plusieurs fichiers</p>
+                <div class="upload-hint">
+                  Formats: JPG, PNG • Multiple fichiers acceptés
+                </div>
+              </div>
+            </div>
+
+            <div id="sequence-dropzone" class="upload-zone hidden">
+              <div class="upload-content">
+                <div class="upload-icon">🧩</div>
+                <h4>Glissez une séquence ici</h4>
+                <p>Import automatique par dossier de séquence.</p>
+              </div>
+            </div>
+
+            <div class="upload-queue" id="upload-queue"></div>
+            <div id="import-grid" class="import-grid"></div>
+          </div>
+
+          <div class="side-card">
+            <h3>Options d'Import</h3>
+            <p id="import-intro" class="info-text">Sélectionne un mode et importe des images AL pour assigner les fichiers automatiquement.</p>
+
+            <div class="option-group">
+              <label class="checkbox-option">
+                <input type="checkbox" id="auto-sequence" checked />
+                <span>Détection automatique de séquence</span>
+              </label>
+
+              <label class="checkbox-option">
+                <input type="checkbox" id="auto-al-number" checked />
+                <span>Numérotation automatique des AL</span>
+              </label>
+
+              <label class="checkbox-option">
+                <input type="checkbox" id="clean-ocr" checked />
+                <span>Nettoyage automatique du bruit OCR</span>
+              </label>
+            </div>
+
+            <div class="card-actions">
+              <button class="btn primary" id="process-all-al">
+                <span class="btn-icon">⚡</span>
+                Traiter toutes les AL
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. PROCESSING TAB -->
+      <section class="tab-panel" id="tab-processing">
+        <div class="panel-header">
+          <h2>⚡ Étape 3: Traitement Intelligent</h2>
+          <p class="panel-description">
+            L'IA applique les algorithmes d'élite qualité pour transformer vos analyses en bullets orally performantes.
+          </p>
+        </div>
+
+        <div class="processing-dashboard">
+          <div class="processing-stats">
+            <div class="stat-card">
+              <div class="stat-icon">📊</div>
+              <div class="stat-content">
+                <div class="stat-number" id="total-al">0</div>
+                <div class="stat-label">AL Totales</div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon">✅</div>
+              <div class="stat-content">
+                <div class="stat-number" id="processed-al">0</div>
+                <div class="stat-label">Traitées</div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon">🎯</div>
+              <div class="stat-content">
+                <div class="stat-number" id="elite-quality">0</div>
+                <div class="stat-label">Qualité Elite</div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon">⚠️</div>
+              <div class="stat-content">
+                <div class="stat-number" id="needs-review">0</div>
+                <div class="stat-label">À Réviser</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="processing-actions">
+            <button class="btn primary large" id="process-all">
+              <span class="btn-icon">🚀</span>
+              Traiter Tout le Projet
+            </button>
+
+            <button class="btn secondary" id="fix-weak-analyses">
+              <span class="btn-icon">🔧</span>
+              Corriger Analyses Faibles
+            </button>
+
+            <button class="btn secondary" id="simplify-all">
+              <span class="btn-icon">✂️</span>
+              Simplifier Tout
+            </button>
+          </div>
+
+          <div id="processing-summary" class="processing-summary"></div>
+          <div id="sequence-status-grid" class="sequence-status-grid"></div>
+
+          <div class="processing-log" id="processing-log">
+            <div class="log-header">
+              <h4>Journal de Traitement</h4>
+            </div>
+            <div class="log-content" id="log-content">
+              <div class="log-entry">Prêt à traiter vos AL avec les algorithmes d'élite qualité...</div>
+            </div>
+          </div>
+
+          <div id="status-table" class="status-table"></div>
+        </div>
+      </section>
+
+      <!-- 4. PREVIEW & EXPORT TAB -->
+      <section class="tab-panel" id="tab-preview">
+        <div class="panel-header">
+          <h2>👁️ Étape 4: Aperçu & Export</h2>
+          <p class="panel-description">
+            Prévisualisez vos AL transformées et exportez au format Excel d'élite qualité.
+          </p>
+        </div>
+
+        <div class="preview-controls">
+          <div class="control-group">
+            <label>Filtre par séquence:</label>
+            <select id="preview-sequence-filter">
+              <option value="">Toutes les séquences</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label>Mode d'export:</label>
+            <select id="export-mode">
+              <option value="minimalist">Minimaliste (révision rapide)</option>
+              <option value="detailed">Détaillé (analyse complète)</option>
+              <option value="high-contrast">Contraste élevé</option>
+            </select>
+          </div>
+
+          <div class="control-actions">
+            <button class="btn secondary" id="preview-refresh">
+              <span class="btn-icon">🔄</span>
+              Actualiser
+            </button>
+
+            <button class="btn primary" id="export-excel">
+              <span class="btn-icon">📊</span>
+              Export Excel
+            </button>
+
+            <button class="btn secondary" id="export-pdf">
+              <span class="btn-icon">📄</span>
+              Export PDF
+            </button>
+          </div>
+        </div>
+
+        <div class="preview-grid" id="preview-grid">
+          <!-- AL preview cards will be inserted here -->
+        </div>
+      </section>
+
+    </main>
+
+    <div id="toast-stack" class="toast-stack"></div>
+
+    <!-- KEYBOARD SHORTCUTS MODAL -->
+    <div class="modal" id="shortcuts-modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>⌨️ Raccourcis Clavier</h3>
+          <button class="modal-close" id="close-shortcuts">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="shortcuts-grid">
+            <div class="shortcut-item">
+              <kbd>Ctrl</kbd> + <kbd>S</kbd>
+              <span>Sauvegarder le projet</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>Ctrl</kbd> + <kbd>Z</kbd>
+              <span>Annuler la dernière action</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>Ctrl</kbd> + <kbd>Y</kbd>
+              <span>Rétablir</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>Ctrl</kbd> + <kbd>E</kbd>
+              <span>Export rapide</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>Tab</kbd>
+              <span>Naviguer entre onglets</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>Ctrl</kbd> + <kbd>/</kbd>
+              <span>Afficher ce panneau</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

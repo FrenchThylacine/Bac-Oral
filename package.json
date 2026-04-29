@@ -1,0 +1,9 @@
+{
+  "name": "bac-oral-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "powershell -ExecutionPolicy Bypass -File run_bac_oral_studio.ps1"
+  }
+}
