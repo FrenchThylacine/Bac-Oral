@@ -12,6 +12,7 @@ import { storeAL, getAL, getAllALs, getFlaggedItems, resolveFlaggedItem, getALSt
 import { completeMissingProcedures, calculateCompletionScore } from "./lib/v3-ai-completion.mjs";
 import { calculateConfidenceScore, identifyFlaggedItems } from "./lib/v3-data-validator.mjs";
 import { exportToExcel, exportToJSON, exportToPDF } from "./lib/v3-excel-exporter.mjs";
+import { parseMultipartFormData } from "./lib/multipart-parser.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -336,12 +337,29 @@ const server = http.createServer(async (request, response) => {
     // V3 Endpoints - AI-Powered AL Digitization
 
     if (request.method === "POST" && url.pathname === "/api/v3/upload") {
-      const payload = await readRequestBody(request);
-      const fileName = payload.fileName || `upload_${Date.now()}`;
-      
       try {
-        const extraction = await extractFromImage(fileName);
+        const { fields } = await parseMultipartFormData(request, TMP_DIR);
+        const uploadedFile = fields.file;
+        
+        if (!uploadedFile || !uploadedFile.filepath) {
+          sendJson(response, 400, { error: "No file uploaded" });
+          return;
+        }
+
+        const fileName = uploadedFile.filename || `upload_${Date.now()}`;
+        const filePath = uploadedFile.filepath;
+
+        // Extract from uploaded file
+        const extraction = await extractFromImage(filePath);
         const stored = await storeAL(extraction);
+
+        // Clean up temp file
+        try {
+          await fs.unlink(filePath);
+        } catch (e) {
+          console.warn(`Failed to clean up temp file: ${filePath}`);
+        }
+
         sendJson(response, 200, {
           success: true,
           alId: extraction.id,

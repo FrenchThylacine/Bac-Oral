@@ -78,6 +78,11 @@
           <span class="tab-text">Aperçu & Export</span>
           <span class="tab-badge" id="preview-badge">4</span>
         </button>
+        <button class="tab-btn" data-tab="v3-digitize">
+          <span class="tab-icon">🤖</span>
+          <span class="tab-text">AI Digitization</span>
+          <span class="tab-badge" id="v3-badge">5</span>
+        </button>
       </div>
     </nav>
 
@@ -368,6 +373,181 @@
         </div>
       </section>
 
+      <!-- 5. V3 AI DIGITIZATION TAB -->
+      <section class="tab-panel" id="tab-v3-digitize">
+        <div class="panel-header">
+          <h2>🤖 AI-Powered AL Digitization (V3)</h2>
+          <p class="panel-description">
+            Upload AL images and let AI extract movements, procedures, and analyses. Auto-complete missing data and export to Excel/PDF.
+          </p>
+        </div>
+
+        <div class="content-grid">
+          <!-- UPLOAD SECTION -->
+          <div class="main-card">
+            <div class="card-header">
+              <h3>Upload AL Images/PDFs</h3>
+              <div class="status-indicator" id="v3-upload-status">ready</div>
+            </div>
+
+            <div class="upload-zone" id="v3-dropzone">
+              <input id="v3-files" type="file" multiple accept="image/*,application/pdf" hidden />
+              <div class="upload-content">
+                <div class="upload-icon">🖼️</div>
+                <h4>Drop AL images or PDFs here</h4>
+                <p>or click to select multiple files</p>
+                <div class="upload-hint">
+                  Formats: PNG, JPG, PDF • Max 20 files at once
+                </div>
+              </div>
+            </div>
+
+            <div id="v3-queue" class="upload-queue"></div>
+
+            <div class="card-actions">
+              <button class="btn primary" id="v3-process-all" disabled>
+                <span class="btn-icon">⚡</span>
+                Process All
+              </button>
+              <button class="btn secondary" id="v3-clear-queue">
+                <span class="btn-icon">🗑️</span>
+                Clear Queue
+              </button>
+            </div>
+          </div>
+
+          <!-- STATUS SECTION -->
+          <div class="side-card">
+            <h3>Processing Status</h3>
+
+            <div class="form-group">
+              <label>Files Queued</label>
+              <div class="status-value" id="v3-queue-count">0</div>
+            </div>
+
+            <div class="form-group">
+              <label>ALs Processed</label>
+              <div class="status-value" id="v3-processed-count">0</div>
+            </div>
+
+            <div class="form-group">
+              <label>Flagged for Review</label>
+              <div class="status-value warning" id="v3-flagged-count">0</div>
+            </div>
+
+            <div class="form-group">
+              <label>Completion Score</label>
+              <div class="progress-small">
+                <div class="progress-fill-small" id="v3-completion-bar" style="width: 0%"></div>
+              </div>
+              <span class="status-value" id="v3-completion-pct">0%</span>
+            </div>
+
+            <div class="form-group">
+              <label>
+                <input type="checkbox" id="v3-auto-export" checked />
+                Auto-export when complete
+              </label>
+            </div>
+
+            <button class="btn primary full" id="v3-refresh-status">
+              <span class="btn-icon">🔄</span>
+              Refresh Status
+            </button>
+          </div>
+        </div>
+
+        <!-- REVIEW SECTION -->
+        <div class="main-card" style="margin-top: 30px;">
+          <div class="card-header">
+            <h3>Review Flagged Items</h3>
+            <div class="badge" id="v3-flagged-badge">0</div>
+          </div>
+
+          <table class="review-table">
+            <thead>
+              <tr>
+                <th>AL Title</th>
+                <th>Issue Type</th>
+                <th>Confidence</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="v3-review-table">
+              <tr class="empty-state">
+                <td colspan="4">No flagged items. Click "Refresh Status" to check.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="card-actions">
+            <button class="btn secondary" id="v3-load-flagged">
+              <span class="btn-icon">📋</span>
+              Load Flagged Items
+            </button>
+            <button class="btn primary" id="v3-approve-all" disabled>
+              <span class="btn-icon">✅</span>
+              Approve All
+            </button>
+          </div>
+        </div>
+
+        <!-- EXPORT SECTION -->
+        <div class="main-card" style="margin-top: 30px;">
+          <div class="card-header">
+            <h3>Export Results</h3>
+          </div>
+
+          <div class="export-options">
+            <div class="export-item">
+              <h4>📊 Excel</h4>
+              <p>Full data with all procedures and analyses</p>
+              <button class="btn secondary" id="v3-export-excel">
+                <span class="btn-icon">📥</span>
+                Download Excel
+              </button>
+            </div>
+
+            <div class="export-item">
+              <h4>📄 PDF</h4>
+              <p>Compact summaries (top 10 procedures per movement)</p>
+              <button class="btn secondary" id="v3-export-pdf">
+                <span class="btn-icon">📥</span>
+                Download PDF
+              </button>
+            </div>
+
+            <div class="export-item">
+              <h4>📋 JSON</h4>
+              <p>Structured data for API integration</p>
+              <button class="btn secondary" id="v3-export-json">
+                <span class="btn-icon">📥</span>
+                Download JSON
+              </button>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <button class="btn primary full" id="v3-export-all">
+              <span class="btn-icon">📦</span>
+              Export All ALs
+            </button>
+          </div>
+        </div>
+
+        <!-- AL LIST SECTION -->
+        <div class="main-card" style="margin-top: 30px;">
+          <div class="card-header">
+            <h3>Processed ALs</h3>
+            <span id="v3-al-count">0 ALs</span>
+          </div>
+
+          <div id="v3-al-list" class="al-list">
+            <div class="empty-state">No ALs processed yet. Upload files to get started.</div>
+          </div>
+        </div>
+      </section>
+
     </main>
 
     <div id="toast-stack" class="toast-stack"></div>
@@ -411,5 +591,6 @@
     </div>
 
     <script src="/app.js"></script>
+    <script src="/app-v3.js"></script>
   </body>
 </html>
