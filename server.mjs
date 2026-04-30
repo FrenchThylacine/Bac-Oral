@@ -6,6 +6,12 @@ import http from "node:http";
 
 import { createAnalysisDraft, detectALFromFilename, ensureCompleteEntry, fixWeakAnalyses, highlightKeyProcedures, simplifyAnalysisEntry, slugify, cleanOcrText, isOcrNoiseDetected, eliteQualityTransform } from "./lib/revision-engine.mjs";
 import { exportWorkbook } from "./lib/export-workbook.mjs";
+import { applyV2Processing, generateV2Summary, exportV2Data } from "./lib/v2-backend.mjs";
+import { extractFromImage } from "./lib/v3-extraction.mjs";
+import { storeAL, getAL, getAllALs, getFlaggedItems, resolveFlaggedItem, getALStats } from "./lib/v3-storage.mjs";
+import { completeMissingProcedures, calculateCompletionScore } from "./lib/v3-ai-completion.mjs";
+import { calculateConfidenceScore, identifyFlaggedItems } from "./lib/v3-data-validator.mjs";
+import { exportToExcel, exportToJSON, exportToPDF } from "./lib/v3-excel-exporter.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -281,8 +287,27 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/process") {
       const payload = await readRequestBody(request);
-      const project = await processEntries(payload.project || {}, payload.options || {});
+      let project = await processEntries(payload.project || {}, payload.options || {});
+      // V2 Enhancement: Apply V2 processing to all entries
+      project = applyV2Processing(project);
       sendJson(response, 200, project);
+      return;
+    }
+
+    // V2 Enhancement: New endpoint for V2 project summary
+    if (request.method === "POST" && url.pathname === "/api/v2/summary") {
+      const payload = await readRequestBody(request);
+      const summary = generateV2Summary(payload.project || {});
+      sendJson(response, 200, summary);
+      return;
+    }
+
+    // V2 Enhancement: New endpoint for V2 data export
+    if (request.method === "POST" && url.pathname === "/api/v2/export") {
+      const payload = await readRequestBody(request);
+      const format = payload.format || 'json';
+      const data = exportV2Data(payload.project || {}, format);
+      sendJson(response, 200, { data, format });
       return;
     }
 
@@ -305,6 +330,144 @@ const server = http.createServer(async (request, response) => {
         ...file,
         downloadUrl: `/outputs/${file.fileName}`,
       });
+      return;
+    }
+
+    // V3 Endpoints - AI-Powered AL Digitization
+
+    if (request.method === "POST" && url.pathname === "/api/v3/upload") {
+      const payload = await readRequestBody(request);
+      const fileName = payload.fileName || `upload_${Date.now()}`;
+      
+      try {
+        const extraction = await extractFromImage(fileName);
+        const stored = await storeAL(extraction);
+        sendJson(response, 200, {
+          success: true,
+          alId: extraction.id,
+          title: extraction.title,
+          stats: stored.stats,
+        });
+      } catch (err) {
+        sendJson(response, 500, { error: err.message });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/v3/process") {
+      const payload = await readRequestBody(request);
+      const alId = payload.id;
+      
+      try {
+        const al = getAL(alId);
+        if (!al) {
+          sendJson(response, 404, { error: "AL not found" });
+          return;
+        }
+
+        const { al: completed, flaggedItems } = await completeMissingProcedures(al);
+        const confidence = calculateConfidenceScore(completed);
+        const flags = identifyFlaggedItems(completed);
+
+        sendJson(response, 200, {
+          success: true,
+          alId: completed.id,
+          title: completed.title,
+          completionScore: confidence.percentage,
+          flagged: flags,
+          flaggedCount: flags.length,
+        });
+      } catch (err) {
+        sendJson(response, 500, { error: err.message });
+      }
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/api/v3/review?")) {
+      const alId = new URL(request.url, "http://localhost").searchParams.get("id");
+      
+      try {
+        const flagged = getFlaggedItems(alId);
+        sendJson(response, 200, {
+          alId,
+          flaggedItems: flagged,
+        });
+      } catch (err) {
+        sendJson(response, 500, { error: err.message });
+      }
+      return;
+    }
+
+    if (request.method === "PUT" && url.pathname.startsWith("/api/v3/review?")) {
+      const payload = await readRequestBody(request);
+      
+      try {
+        for (const [flagId, resolution] of Object.entries(payload.decisions || {})) {
+          resolveFlaggedItem(flagId, resolution);
+        }
+        sendJson(response, 200, { success: true, updated: Object.keys(payload.decisions || {}).length });
+      } catch (err) {
+        sendJson(response, 500, { error: err.message });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/v3/export") {
+      const payload = await readRequestBody(request);
+      const alId = payload.id;
+      const format = payload.format || "json";
+      
+      try {
+        const al = getAL(alId);
+        if (!al) {
+          sendJson(response, 404, { error: "AL not found" });
+          return;
+        }
+
+        let result;
+        if (format === "excel") {
+          result = await exportToExcel(al);
+        } else if (format === "pdf") {
+          result = await exportToPDF(al);
+        } else {
+          result = await exportToJSON(al);
+        }
+
+        sendJson(response, 200, {
+          success: true,
+          format,
+          file: result.file,
+          downloadUrl: `/outputs/${path.basename(result.file)}`,
+        });
+      } catch (err) {
+        sendJson(response, 500, { error: err.message });
+      }
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/v3/als") {
+      try {
+        const als = getAllALs();
+        sendJson(response, 200, { als });
+      } catch (err) {
+        sendJson(response, 500, { error: err.message });
+      }
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/api/v3/als/")) {
+      const alId = url.pathname.replace("/api/v3/als/", "");
+      
+      try {
+        const stats = getALStats(alId);
+        if (!stats) {
+          sendJson(response, 404, { error: "AL not found" });
+          return;
+        }
+        sendJson(response, 200, stats);
+      } catch (err) {
+        sendJson(response, 500, { error: err.message });
+      }
       return;
     }
 
