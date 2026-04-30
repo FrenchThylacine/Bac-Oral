@@ -1,0 +1,40 @@
+ANALYSE LITTERAIRE - MOLIERE "LE TARTUFFE" - ACTE III
+
+MOUVEMENT 1: REVELATION DE L'IMPOSTURE
+- Procedure: Revelation par Damis
+  Color: Blue, Type: Dialogue
+  Analysis: Exposition de la tromperie; revelation du personnage
+
+- Procedure: Confrontation Orgon-Tartuffe
+  Color: Red, Type: Action
+  Analysis: Tension dramatique; moment critique
+
+- Procedure: Declaration de foi
+  Color: Yellow, Type: Highlight
+  Analysis: Ironie molieresque; critique de l'hypocrisie
+
+MOUVEMENT 2: REACTION D'ORGON
+- Procedure: Refus de croire Damis
+  Color: Purple, Type: Dialogue
+  Analysis: Aveuglement du personnage; resistance au changement
+
+- Procedure: Mise a l'epreuve
+  Color: Orange, Type: Transition
+  Analysis: Pivot narratif; preparation de la resolution
+
+- Procedure: Promesse de mariage
+  Color: Green, Type: Analysis
+  Analysis: Complication; consequence directe
+
+MOUVEMENT 3: RESOLUTION
+- Procedure: Revelation finale
+  Color: Red, Type: Action
+  Analysis: Denouement; justice restauree
+
+INTRODUCTION:
+Tartuffe est une comedie de moeurs qui critique l'hypocrisie religieuse et la credulite des personnages. 
+Moliere utilise le theatre comme instrument de critique sociale.
+
+CONCLUSION:
+Cette piece reste une critique atemporelle de l'imposture et de la manipulation. 
+Elle affirme le triomphe de la verite sur la tromperie.

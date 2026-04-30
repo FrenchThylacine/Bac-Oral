@@ -1,6 +1,13 @@
 /**
  * V3 AI Digitization Module
  * Handles file uploads, processing, review, and export for AL digitization
+ * 
+ * Bug Fixes:
+ * - Removed all emojis
+ * - Added null checks for all DOM elements
+ * - Improved error handling and recovery
+ * - Consistent async/await patterns
+ * - Better logging and debugging
  */
 
 const V3_CONFIG = {
@@ -8,83 +15,130 @@ const V3_CONFIG = {
   maxFileSize: 50 * 1024 * 1024, // 50MB
   batchSize: 5,
   apiBase: '/api/v3',
+  requestTimeout: 60000,
 };
 
 // State
-let v3State = {
+const v3State = {
   fileQueue: [],
   processedALs: [],
   flaggedItems: [],
-  currentProcessing: null,
+  currentProcessing: false,
   completionScore: 0,
   autoExport: true,
 };
 
-// V3 DOM Elements
-const v3Elements = {
-  dropzone: document.querySelector('#v3-dropzone'),
-  files: document.querySelector('#v3-files'),
-  queue: document.querySelector('#v3-queue'),
-  queueCount: document.querySelector('#v3-queue-count'),
-  processAllBtn: document.querySelector('#v3-process-all'),
-  clearQueueBtn: document.querySelector('#v3-clear-queue'),
-  processedCount: document.querySelector('#v3-processed-count'),
-  flaggedCount: document.querySelector('#v3-flagged-count'),
-  completionBar: document.querySelector('#v3-completion-bar'),
-  completionPct: document.querySelector('#v3-completion-pct'),
-  autoExportCheckbox: document.querySelector('#v3-auto-export'),
-  refreshStatusBtn: document.querySelector('#v3-refresh-status'),
-  reviewTable: document.querySelector('#v3-review-table'),
-  flaggedBadge: document.querySelector('#v3-flagged-badge'),
-  loadFlaggedBtn: document.querySelector('#v3-load-flagged'),
-  approveAllBtn: document.querySelector('#v3-approve-all'),
-  exportExcelBtn: document.querySelector('#v3-export-excel'),
-  exportPdfBtn: document.querySelector('#v3-export-pdf'),
-  exportJsonBtn: document.querySelector('#v3-export-json'),
-  exportAllBtn: document.querySelector('#v3-export-all'),
-  alList: document.querySelector('#v3-al-list'),
-  alCount: document.querySelector('#v3-al-count'),
-  uploadStatus: document.querySelector('#v3-upload-status'),
-};
+// V3 DOM Elements (lazy loaded)
+const v3Elements = {};
+
+// Utility: HTML escaping
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Utility: Safe element getter
+function getV3Element(selector) {
+  try {
+    return document.querySelector(selector);
+  } catch (e) {
+    console.warn(`[V3] Failed to find element: ${selector}`, e);
+    return null;
+  }
+}
+
+// Initialize DOM elements
+function initV3Elements() {
+  v3Elements.dropzone = getV3Element('#v3-dropzone');
+  v3Elements.files = getV3Element('#v3-files');
+  v3Elements.queue = getV3Element('#v3-queue');
+  v3Elements.queueCount = getV3Element('#v3-queue-count');
+  v3Elements.processAllBtn = getV3Element('#v3-process-all');
+  v3Elements.clearQueueBtn = getV3Element('#v3-clear-queue');
+  v3Elements.processedCount = getV3Element('#v3-processed-count');
+  v3Elements.flaggedCount = getV3Element('#v3-flagged-count');
+  v3Elements.completionBar = getV3Element('#v3-completion-bar');
+  v3Elements.completionPct = getV3Element('#v3-completion-pct');
+  v3Elements.autoExportCheckbox = getV3Element('#v3-auto-export');
+  v3Elements.refreshStatusBtn = getV3Element('#v3-refresh-status');
+  v3Elements.reviewTable = getV3Element('#v3-review-table');
+  v3Elements.flaggedBadge = getV3Element('#v3-flagged-badge');
+  v3Elements.loadFlaggedBtn = getV3Element('#v3-load-flagged');
+  v3Elements.approveAllBtn = getV3Element('#v3-approve-all');
+  v3Elements.exportExcelBtn = getV3Element('#v3-export-excel');
+  v3Elements.exportPdfBtn = getV3Element('#v3-export-pdf');
+  v3Elements.exportJsonBtn = getV3Element('#v3-export-json');
+  v3Elements.exportAllBtn = getV3Element('#v3-export-all');
+  v3Elements.alList = getV3Element('#v3-al-list');
+  v3Elements.alCount = getV3Element('#v3-al-count');
+  v3Elements.uploadStatus = getV3Element('#v3-upload-status');
+}
+
+// Utility: Show notifications
+function showToastV3(title, message, type = 'info') {
+  console.log(`[V3][${type.toUpperCase()}] ${title}: ${message}`);
+  if (typeof showToast === 'function') {
+    showToast(title, message, type);
+  }
+}
 
 // ===== FILE UPLOAD HANDLERS =====
 
 function setupV3FileUpload() {
-  if (!v3Elements.dropzone) return;
+  if (!v3Elements.dropzone) {
+    console.warn('[V3] Dropzone element not found');
+    return;
+  }
 
-  // Click to upload
   v3Elements.dropzone.addEventListener('click', () => {
-    v3Elements.files?.click();
+    if (v3Elements.files) {
+      v3Elements.files.click();
+    }
   });
 
-  // Drag and drop
   v3Elements.dropzone.addEventListener('dragover', (e) => {
     e.preventDefault();
+    e.stopPropagation();
     v3Elements.dropzone.classList.add('dragging');
   });
 
-  v3Elements.dropzone.addEventListener('dragleave', () => {
+  v3Elements.dropzone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     v3Elements.dropzone.classList.remove('dragging');
   });
 
   v3Elements.dropzone.addEventListener('drop', async (e) => {
     e.preventDefault();
+    e.stopPropagation();
     v3Elements.dropzone.classList.remove('dragging');
-    await handleV3FileSelect(e.dataTransfer.files);
+    if (e.dataTransfer?.files) {
+      await handleV3FileSelect(e.dataTransfer.files);
+    }
   });
 
-  // File input
-  v3Elements.files?.addEventListener('change', async (e) => {
-    await handleV3FileSelect(e.target.files);
-  });
+  if (v3Elements.files) {
+    v3Elements.files.addEventListener('change', async (e) => {
+      if (e.target?.files) {
+        await handleV3FileSelect(e.target.files);
+      }
+    });
+  }
 }
 
 async function handleV3FileSelect(files) {
+  if (!files || files.length === 0) {
+    showToastV3('No Files', 'No files selected', 'warning');
+    return;
+  }
+
   const newFiles = Array.from(files).slice(0, V3_CONFIG.maxFiles - v3State.fileQueue.length);
   
   for (const file of newFiles) {
     if (file.size > V3_CONFIG.maxFileSize) {
-      showToast('File Too Large', `${file.name} exceeds 50MB limit`, 'error');
+      showToastV3('File Too Large', `${file.name} exceeds 50MB limit`, 'error');
       continue;
     }
 
@@ -95,41 +149,49 @@ async function handleV3FileSelect(files) {
       status: 'pending',
       progress: 0,
       result: null,
+      error: null,
     });
   }
 
   renderV3Queue();
   updateV3Controls();
+  showToastV3('Files Added', `${newFiles.length} file(s) added to queue`, 'success');
 }
 
 function renderV3Queue() {
   if (!v3Elements.queue) return;
 
   if (v3State.fileQueue.length === 0) {
-    v3Elements.queue.innerHTML = '';
+    v3Elements.queue.innerHTML = '<div class="empty-state">No files in queue</div>';
     return;
   }
 
   v3Elements.queue.innerHTML = v3State.fileQueue
-    .map((item) => `
-      <div class="queue-item ${item.status}">
-        <div class="queue-item-info">
-          <span class="queue-item-name">${escapeHtml(item.file.name)}</span>
-          <span class="queue-item-size">${(item.file.size / 1024 / 1024).toFixed(1)}MB</span>
-        </div>
-        <div class="queue-item-progress">
-          <div class="progress-small">
-            <div class="progress-fill-small" style="width: ${item.progress}%"></div>
+    .map((item) => {
+      const statusClass = item.status || 'pending';
+      const fileSize = (item.file.size / 1024 / 1024).toFixed(1);
+      
+      return `
+        <div class="queue-item queue-item-${statusClass}">
+          <div class="queue-item-content">
+            <div class="queue-item-info">
+              <span class="queue-item-name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</span>
+              <span class="queue-item-size">${fileSize}MB</span>
+            </div>
+            <div class="queue-item-progress">
+              <div class="progress-bar-small">
+                <div class="progress-fill-small" style="width: ${item.progress}%"></div>
+              </div>
+              <span class="queue-item-status">${statusClass}</span>
+            </div>
+            ${item.error ? `<div class="queue-item-error">${escapeHtml(item.error)}</div>` : ''}
           </div>
-          <span class="queue-item-status">${item.status}</span>
+          ${item.status === 'pending' ? `
+            <button class="queue-item-remove" onclick="removeV3QueueItem('${item.id}')" type="button" title="Remove">Remove</button>
+          ` : ''}
         </div>
-        ${item.status === 'pending' ? `
-          <button class="queue-item-remove" onclick="removeV3QueueItem('${item.id}')">
-            <span>×</span>
-          </button>
-        ` : ''}
-      </div>
-    `)
+      `;
+    })
     .join('');
 }
 

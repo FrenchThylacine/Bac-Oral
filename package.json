@@ -5,5 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "powershell -ExecutionPolicy Bypass -File run_bac_oral_studio.ps1"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.9.0",
+    "pdfkit": "^0.18.0"
   }
 }
