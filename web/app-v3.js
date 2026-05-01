@@ -596,6 +596,7 @@ function setupV3EventListeners() {
 // ===== INITIALIZATION =====
 
 function initV3Module() {
+  initV3Elements();
   setupV3FileUpload();
   setupV3EventListeners();
   refreshV3Status();

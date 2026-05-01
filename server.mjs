@@ -5,13 +5,15 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 
 import { createAnalysisDraft, detectALFromFilename, ensureCompleteEntry, fixWeakAnalyses, highlightKeyProcedures, simplifyAnalysisEntry, slugify, cleanOcrText, isOcrNoiseDetected, eliteQualityTransform } from "./lib/revision-engine.mjs";
-import { exportWorkbook } from "./lib/export-workbook.mjs";
+import { exportWorkbook } from "./lib/export-workbook-stub.mjs";
 import { applyV2Processing, generateV2Summary, exportV2Data } from "./lib/v2-backend.mjs";
 import { extractFromImage } from "./lib/v3-extraction.mjs";
-import { storeAL, getAL, getAllALs, getFlaggedItems, resolveFlaggedItem, getALStats } from "./lib/v3-storage.mjs";
+import { storeAL, getAL, getAllALs, getFlaggedItems, resolveFlaggedItem, getALStats, initializeDatabase } from "./lib/v3-storage.mjs";
 import { completeMissingProcedures, calculateCompletionScore } from "./lib/v3-ai-completion.mjs";
 import { calculateConfidenceScore, identifyFlaggedItems } from "./lib/v3-data-validator.mjs";
-import { exportToExcel, exportToJSON, exportToPDF } from "./lib/v3-excel-exporter.mjs";
+import { exportToExcel } from "./lib/v3-excel-exporter.mjs";
+import { exportToJSON } from "./lib/v3-json-exporter.mjs";
+import { exportToPDF } from "./lib/v3-pdf-exporter.mjs";
 import { parseMultipartFormData } from "./lib/multipart-parser.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -263,6 +265,11 @@ async function serveStaticAsset(request, response, filePath) {
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url || "/", "http://localhost");
+    
+    // Debug: Log API requests
+    if (url.pathname.startsWith('/api/')) {
+      console.log(`[Server] ${request.method} ${url.pathname}`);
+    }
 
     if (request.method === "OPTIONS") {
       response.writeHead(204, {
@@ -465,9 +472,12 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/api/v3/als") {
       try {
+        console.log('[Server] Fetching all ALs from storage...');
         const als = getAllALs();
+        console.log(`[Server] Found ${als.length} ALs`);
         sendJson(response, 200, { als });
       } catch (err) {
+        console.error('[Server] Error in /api/v3/als:', err.message, err.stack);
         sendJson(response, 500, { error: err.message });
       }
       return;
@@ -494,6 +504,26 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    // Favicon handler
+    if (url.pathname === "/favicon.ico") {
+      response.writeHead(200, {
+        "Content-Type": "image/x-icon",
+        "Cache-Control": "max-age=31536000",
+      });
+      // Minimal 1x1 favicon ICO
+      response.end(Buffer.from([
+        0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10, 0x00, 0x00, 0x01, 0x00, 0x18, 0x00, 0x30, 0x00,
+        0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x20, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      ]));
+      return;
+    }
+
     let assetPath = url.pathname === "/" ? path.join(WEB_DIR, "index.html") : path.join(WEB_DIR, url.pathname);
     if (!assetPath.startsWith(WEB_DIR)) {
       notFound(response);
@@ -509,6 +539,14 @@ const server = http.createServer(async (request, response) => {
 });
 
 await ensureDirectories();
+
+// Initialize database
+try {
+  initializeDatabase();
+  console.log('[Server] V3 database initialized');
+} catch (err) {
+  console.error('[Server] Failed to initialize V3 database:', err.message);
+}
 
 const port = Number(process.env.PORT || 4173);
 server.listen(port, "127.0.0.1", () => {

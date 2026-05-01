@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🎯 Bac Oral Studio - Elite Quality</title>
+  <title>Bac Oral Studio - Elite Quality</title>
   <link rel="stylesheet" href="/styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
 </head>
@@ -12,7 +12,6 @@
     <header class="elite-header">
       <div class="header-content">
         <div class="brand-section">
-          <div class="brand-icon">🎯</div>
           <div class="brand-text">
             <h1>Bac Oral Studio</h1>
             <p class="tagline">Elite Quality • Co-created by Claude, Gemini, Codex & ChatGPT</p>
@@ -36,11 +35,9 @@
 
         <div class="header-actions">
           <button class="action-btn secondary" id="theme-toggle">
-            <span class="btn-icon">🌙</span>
             Dark Mode
           </button>
           <button class="action-btn primary" id="quick-export">
-            <span class="btn-icon">📊</span>
             Export Excel
           </button>
         </div>
@@ -59,27 +56,22 @@
     <nav class="elite-tabs">
       <div class="tab-container">
         <button class="tab-btn active" data-tab="recap">
-          <span class="tab-icon">📚</span>
           <span class="tab-text">Récapitulatif</span>
           <span class="tab-badge" id="recap-badge">1</span>
         </button>
         <button class="tab-btn" data-tab="import">
-          <span class="tab-icon">📸</span>
           <span class="tab-text">Import AL</span>
           <span class="tab-badge" id="import-badge">2</span>
         </button>
         <button class="tab-btn" data-tab="processing">
-          <span class="tab-icon">⚡</span>
           <span class="tab-text">Traitement</span>
           <span class="tab-badge" id="processing-badge">3</span>
         </button>
         <button class="tab-btn" data-tab="preview">
-          <span class="tab-icon">👁️</span>
           <span class="tab-text">Aperçu & Export</span>
           <span class="tab-badge" id="preview-badge">4</span>
         </button>
         <button class="tab-btn" data-tab="v3-digitize">
-          <span class="tab-icon">🤖</span>
           <span class="tab-text">AI Digitization</span>
           <span class="tab-badge" id="v3-badge">5</span>
         </button>
@@ -93,7 +85,7 @@
       <!-- 1. RECAP TAB -->
       <section class="tab-panel active" id="tab-recap">
         <div class="panel-header">
-          <h2>📚 Étape 1: Import du Récapitulatif</h2>
+          <h2> Étape 1: Import du Récapitulatif</h2>
           <p class="panel-description">
             Chargez le PDF du récapitulatif pour générer automatiquement la structure des séquences et AL.
           </p>
@@ -109,7 +101,7 @@
             <div class="upload-zone" id="recap-dropzone">
               <input id="recap-file" type="file" accept="application/pdf" hidden />
               <div class="upload-content">
-                <div class="upload-icon">📄</div>
+                
                 <h4>Glissez votre PDF ici</h4>
                 <p>ou cliquez pour sélectionner le fichier</p>
                 <div class="upload-hint">
@@ -120,11 +112,11 @@
 
             <div class="card-actions">
               <button class="btn primary" id="parse-recap" disabled>
-                <span class="btn-icon">🔍</span>
+                
                 Analyser le PDF
               </button>
               <button class="btn secondary" id="reset-project">
-                <span class="btn-icon">🔄</span>
+                
                 Réinitialiser
               </button>
             </div>
@@ -168,7 +160,7 @@
 
         <!-- Sequence Preview -->
         <div class="preview-section" id="sequence-preview" style="display: none;">
-          <h3>📋 Aperçu des Séquences Détectées</h3>
+          <h3> Aperçu des Séquences Détectées</h3>
           <div id="sequence-list" class="sequence-grid"></div>
         </div>
       </section>
@@ -176,7 +168,7 @@
       <!-- 2. IMPORT TAB -->
       <section class="tab-panel" id="tab-import">
         <div class="panel-header">
-          <h2>📸 Étape 2: Import des Analyses Littéraires</h2>
+          <h2> Étape 2: Import des Analyses Littéraires</h2>
           <p class="panel-description">
             Importez les photos de vos AL. L'IA détecte automatiquement le type et organise tout.
           </p>
@@ -195,7 +187,7 @@
             <div class="upload-zone multiple" id="al-dropzone">
               <input id="al-files" type="file" accept="image/*" multiple hidden />
               <div class="upload-content">
-                <div class="upload-icon">📸</div>
+                
                 <h4>Glissez vos photos AL</h4>
                 <p>ou cliquez pour sélectionner plusieurs fichiers</p>
                 <div class="upload-hint">
@@ -206,7 +198,7 @@
 
             <div id="sequence-dropzone" class="upload-zone hidden">
               <div class="upload-content">
-                <div class="upload-icon">🧩</div>
+                
                 <h4>Glissez une séquence ici</h4>
                 <p>Import automatique par dossier de séquence.</p>
               </div>
@@ -239,7 +231,7 @@
 
             <div class="card-actions">
               <button class="btn primary" id="process-all-al">
-                <span class="btn-icon">⚡</span>
+                
                 Traiter toutes les AL
               </button>
             </div>
@@ -250,7 +242,7 @@
       <!-- 3. PROCESSING TAB -->
       <section class="tab-panel" id="tab-processing">
         <div class="panel-header">
-          <h2>⚡ Étape 3: Traitement Intelligent</h2>
+          <h2> Étape 3: Traitement Intelligent</h2>
           <p class="panel-description">
             L'IA applique les algorithmes d'élite qualité pour transformer vos analyses en bullets orally performantes.
           </p>
@@ -259,7 +251,7 @@
         <div class="processing-dashboard">
           <div class="processing-stats">
             <div class="stat-card">
-              <div class="stat-icon">📊</div>
+              
               <div class="stat-content">
                 <div class="stat-number" id="total-al">0</div>
                 <div class="stat-label">AL Totales</div>
@@ -267,7 +259,7 @@
             </div>
 
             <div class="stat-card">
-              <div class="stat-icon">✅</div>
+              
               <div class="stat-content">
                 <div class="stat-number" id="processed-al">0</div>
                 <div class="stat-label">Traitées</div>
@@ -275,7 +267,7 @@
             </div>
 
             <div class="stat-card">
-              <div class="stat-icon">🎯</div>
+              
               <div class="stat-content">
                 <div class="stat-number" id="elite-quality">0</div>
                 <div class="stat-label">Qualité Elite</div>
@@ -283,7 +275,7 @@
             </div>
 
             <div class="stat-card">
-              <div class="stat-icon">⚠️</div>
+              
               <div class="stat-content">
                 <div class="stat-number" id="needs-review">0</div>
                 <div class="stat-label">À Réviser</div>
@@ -293,17 +285,17 @@
 
           <div class="processing-actions">
             <button class="btn primary large" id="process-all">
-              <span class="btn-icon">🚀</span>
+              
               Traiter Tout le Projet
             </button>
 
             <button class="btn secondary" id="fix-weak-analyses">
-              <span class="btn-icon">🔧</span>
+              
               Corriger Analyses Faibles
             </button>
 
             <button class="btn secondary" id="simplify-all">
-              <span class="btn-icon">✂️</span>
+              
               Simplifier Tout
             </button>
           </div>
@@ -327,7 +319,7 @@
       <!-- 4. PREVIEW & EXPORT TAB -->
       <section class="tab-panel" id="tab-preview">
         <div class="panel-header">
-          <h2>👁️ Étape 4: Aperçu & Export</h2>
+          <h2> Étape 4: Aperçu & Export</h2>
           <p class="panel-description">
             Prévisualisez vos AL transformées et exportez au format Excel d'élite qualité.
           </p>
@@ -352,17 +344,17 @@
 
           <div class="control-actions">
             <button class="btn secondary" id="preview-refresh">
-              <span class="btn-icon">🔄</span>
+              
               Actualiser
             </button>
 
             <button class="btn primary" id="export-excel">
-              <span class="btn-icon">📊</span>
+              
               Export Excel
             </button>
 
             <button class="btn secondary" id="export-pdf">
-              <span class="btn-icon">📄</span>
+              
               Export PDF
             </button>
           </div>
@@ -376,7 +368,7 @@
       <!-- 5. V3 AI DIGITIZATION TAB -->
       <section class="tab-panel" id="tab-v3-digitize">
         <div class="panel-header">
-          <h2>🤖 AI-Powered AL Digitization (V3)</h2>
+          <h2> AI-Powered AL Digitization (V3)</h2>
           <p class="panel-description">
             Upload AL images and let AI extract movements, procedures, and analyses. Auto-complete missing data and export to Excel/PDF.
           </p>
@@ -393,7 +385,7 @@
             <div class="upload-zone" id="v3-dropzone">
               <input id="v3-files" type="file" multiple accept="image/*,application/pdf" hidden />
               <div class="upload-content">
-                <div class="upload-icon">🖼️</div>
+                
                 <h4>Drop AL images or PDFs here</h4>
                 <p>or click to select multiple files</p>
                 <div class="upload-hint">
@@ -406,11 +398,11 @@
 
             <div class="card-actions">
               <button class="btn primary" id="v3-process-all" disabled>
-                <span class="btn-icon">⚡</span>
+                
                 Process All
               </button>
               <button class="btn secondary" id="v3-clear-queue">
-                <span class="btn-icon">🗑️</span>
+                
                 Clear Queue
               </button>
             </div>
@@ -451,7 +443,7 @@
             </div>
 
             <button class="btn primary full" id="v3-refresh-status">
-              <span class="btn-icon">🔄</span>
+              
               Refresh Status
             </button>
           </div>
@@ -482,11 +474,11 @@
 
           <div class="card-actions">
             <button class="btn secondary" id="v3-load-flagged">
-              <span class="btn-icon">📋</span>
+              
               Load Flagged Items
             </button>
             <button class="btn primary" id="v3-approve-all" disabled>
-              <span class="btn-icon">✅</span>
+              
               Approve All
             </button>
           </div>
@@ -500,28 +492,28 @@
 
           <div class="export-options">
             <div class="export-item">
-              <h4>📊 Excel</h4>
+              <h4> Excel</h4>
               <p>Full data with all procedures and analyses</p>
               <button class="btn secondary" id="v3-export-excel">
-                <span class="btn-icon">📥</span>
+                
                 Download Excel
               </button>
             </div>
 
             <div class="export-item">
-              <h4>📄 PDF</h4>
+              <h4> PDF</h4>
               <p>Compact summaries (top 10 procedures per movement)</p>
               <button class="btn secondary" id="v3-export-pdf">
-                <span class="btn-icon">📥</span>
+                
                 Download PDF
               </button>
             </div>
 
             <div class="export-item">
-              <h4>📋 JSON</h4>
+              <h4>JSON</h4>
               <p>Structured data for API integration</p>
               <button class="btn secondary" id="v3-export-json">
-                <span class="btn-icon">📥</span>
+                
                 Download JSON
               </button>
             </div>
@@ -529,7 +521,7 @@
 
           <div class="card-actions">
             <button class="btn primary full" id="v3-export-all">
-              <span class="btn-icon">📦</span>
+              
               Export All ALs
             </button>
           </div>
@@ -556,7 +548,7 @@
     <div class="modal" id="shortcuts-modal" style="display: none;">
       <div class="modal-content">
         <div class="modal-header">
-          <h3>⌨️ Raccourcis Clavier</h3>
+          <h3>Keyboard Shortcuts</h3>
           <button class="modal-close" id="close-shortcuts">&times;</button>
         </div>
         <div class="modal-body">
@@ -594,3 +586,5 @@
     <script src="/app-v3.js"></script>
   </body>
 </html>
+
+
