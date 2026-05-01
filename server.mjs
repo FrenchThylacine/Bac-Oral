@@ -1,566 +1,405 @@
+// ============================================================
+// server.mjs — Bac Oral Studio v3
+// FIX: auto-detect Python (no hardcoded path)
+// FIX: clean imports, removed broken stubs
+// ============================================================
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, execSync, execFile } from "node:child_process";
 import http from "node:http";
 
-import { createAnalysisDraft, detectALFromFilename, ensureCompleteEntry, fixWeakAnalyses, highlightKeyProcedures, simplifyAnalysisEntry, slugify, cleanOcrText, isOcrNoiseDetected, eliteQualityTransform } from "./lib/revision-engine.mjs";
-import { exportWorkbook } from "./lib/export-workbook-stub.mjs";
-import { applyV2Processing, generateV2Summary, exportV2Data } from "./lib/v2-backend.mjs";
-import { extractFromImage } from "./lib/v3-extraction.mjs";
-import { storeAL, getAL, getAllALs, getFlaggedItems, resolveFlaggedItem, getALStats, initializeDatabase } from "./lib/v3-storage.mjs";
-import { completeMissingProcedures, calculateCompletionScore } from "./lib/v3-ai-completion.mjs";
-import { calculateConfidenceScore, identifyFlaggedItems } from "./lib/v3-data-validator.mjs";
-import { exportToExcel } from "./lib/v3-excel-exporter.mjs";
-import { exportToJSON } from "./lib/v3-json-exporter.mjs";
-import { exportToPDF } from "./lib/v3-pdf-exporter.mjs";
+import {
+  createAnalysisDraft, ensureCompleteEntry, fixWeakAnalyses,
+  highlightKeyProcedures, simplifyAnalysisEntry, slugify,
+  cleanOcrText, isOcrNoiseDetected, eliteQualityTransform,
+} from "./lib/revision-engine.mjs";
+
+import { exportWorkbook } from "./lib/export-workbook.mjs";
+import { extractFromImages } from "./lib/v3-extraction.mjs";
+import {
+  storeAL, getAL, getAllALs, getFlaggedItems,
+  resolveFlaggedItem, getALStats, initializeDatabase, deleteAL,
+} from "./lib/v3-storage.mjs";
 import { parseMultipartFormData } from "./lib/multipart-parser.mjs";
-import { execSync } from "node:child_process";
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT = __dirname;
-const WEB_DIR = path.join(ROOT, "web");
+const __dirname  = path.dirname(__filename);
+const ROOT       = __dirname;
+const WEB_DIR    = path.join(ROOT, "web");
 const OUTPUT_DIR = path.join(ROOT, "outputs");
-const TMP_DIR = path.join(ROOT, "tmp");
+const TMP_DIR    = path.join(ROOT, "tmp");
+const DATA_DIR   = path.join(ROOT, ".data");
 
-// Auto-detect Python installation
+// ── FIX: Auto-detect Python (was hardcoded to C:\Users\iyadf\...) ──
 function findPython() {
   for (const cmd of ["python3", "python", "py"]) {
-    try {
-      execSync(`${cmd} --version`, { stdio: "ignore" });
-      return cmd;
-    } catch {}
+    try { execSync(`${cmd} --version`, { stdio: "ignore" }); return cmd; } catch {}
   }
+  console.warn("[Server] Python not found — PDF recap parsing unavailable");
   return "python";
 }
 const PYTHON = findPython();
+console.log(`[Server] Python: ${PYTHON}`);
 
-const MIME_TYPES = {
+// ── Load .env if present ─────────────────────────────────────
+try {
+  const envPath = path.join(ROOT, ".env");
+  const envContent = await fs.readFile(envPath, "utf8").catch(() => "");
+  for (const line of envContent.split("\n")) {
+    const [k, ...v] = line.split("=");
+    if (k && v.length && !process.env[k.trim()]) {
+      process.env[k.trim()] = v.join("=").trim().replace(/^["']|["']$/g, "");
+    }
+  }
+} catch {}
+
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+if (ANTHROPIC_API_KEY) {
+  console.log("[Server] Anthropic API key detected — vision mode enabled");
+} else {
+  console.log("[Server] No API key — OCR pipeline mode");
+}
+
+// ── MIME types ───────────────────────────────────────────────
+const MIME = {
   ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
+  ".css":  "text/css; charset=utf-8",
+  ".js":   "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
+  ".pdf":  "application/pdf",
+  ".png":  "image/png",
+  ".jpg":  "image/jpeg",
   ".jpeg": "image/jpeg",
-  ".svg": "image/svg+xml",
+  ".svg":  "image/svg+xml",
 };
 
-function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, {
+// ── Response helpers ─────────────────────────────────────────
+function sendJson(res, status, payload) {
+  const body = JSON.stringify(payload);
+  res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
   });
-  response.end(JSON.stringify(payload));
+  res.end(body);
 }
 
-function notFound(response) {
-  sendJson(response, 404, { error: "Not found" });
+function notFound(res) { sendJson(res, 404, { error: "Not found" }); }
+
+function serverError(res, err) {
+  console.error("[Server] Error:", err?.message || err);
+  sendJson(res, 500, { error: String(err?.message || err) });
 }
 
-function readRequestBody(request) {
+function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
-    request.on("data", (chunk) => {
-      body += chunk.toString("utf8");
-      if (body.length > 35_000_000) {
-        reject(new Error("Payload too large"));
-      }
+    req.on("data", c => {
+      body += c;
+      if (body.length > 35_000_000) reject(new Error("Payload too large"));
     });
-    request.on("end", () => {
-      resolve(body ? JSON.parse(body) : {});
+    req.on("end", () => {
+      try { resolve(body ? JSON.parse(body) : {}); } catch(e) { reject(e); }
     });
-    request.on("error", reject);
+    req.on("error", reject);
   });
 }
 
-function spawnCommand(command, args, options = {}) {
+function dataUrlToBuffer(dataUrl = "") {
+  const [, b64 = ""] = dataUrl.split(",");
+  return Buffer.from(b64, "base64");
+}
+
+async function writeTempFile(name, buf) {
+  const safe = `${Date.now()}-${Math.random().toString(36).slice(2,6)}${path.extname(name||"") || ".bin"}`;
+  const p = path.join(TMP_DIR, safe);
+  await fs.writeFile(p, buf);
+  return p;
+}
+
+async function serveStatic(req, res, filePath) {
+  try {
+    const data = await fs.readFile(filePath);
+    res.writeHead(200, {
+      "Content-Type": MIME[path.extname(filePath)] || "application/octet-stream",
+      "Cache-Control": "no-cache",
+    });
+    res.end(data);
+  } catch { notFound(res); }
+}
+
+function spawnCmd(cmd, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: ROOT,
-      windowsHide: true,
-      ...options,
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
-    });
+    const child = spawn(cmd, args, { cwd: ROOT, windowsHide: true });
+    let out = "", err = "";
+    child.stdout.on("data", c => out += c);
+    child.stderr.on("data", c => err += c);
     child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr || `Command failed with exit code ${code}`));
-        return;
-      }
-      resolve(stdout);
-    });
+    child.on("close", code =>
+      code !== 0 ? reject(new Error(err || `Exit ${code}`)) : resolve(out)
+    );
   });
 }
 
-async function ensureDirectories() {
-  await fs.mkdir(OUTPUT_DIR, { recursive: true });
-  await fs.mkdir(TMP_DIR, { recursive: true });
-}
-
-async function writeTempFile(fileName, buffer) {
-  const safeName = `${Date.now()}-${slugify(fileName || "upload")}${path.extname(fileName || "") || ".bin"}`;
-  const filePath = path.join(TMP_DIR, safeName);
-  await fs.writeFile(filePath, buffer);
-  return filePath;
-}
-
-function dataUrlToBuffer(dataUrl) {
-  const [, base64 = ""] = dataUrl.split(",");
-  return Buffer.from(base64, "base64");
-}
-
+// ── Recap parsing ────────────────────────────────────────────
 async function parseRecap(payload) {
   if (payload.manualText) {
-    return {
-      fileName: "Saisie manuelle",
-      sequenceCount: 0,
-      sequences: [],
-      manualText: payload.manualText,
-    };
+    return { fileName: "Saisie manuelle", sequenceCount: 0, sequences: [], textCount: 0 };
   }
-
-  const buffer = dataUrlToBuffer(payload.fileBase64);
-  const tempPath = await writeTempFile(payload.fileName || "recap.pdf", buffer);
-  const raw = await spawnCommand(PYTHON, [path.join(ROOT, "scripts", "extract_recap.py"), tempPath]);
-  return JSON.parse(raw);
-}
-
-function sequenceLookupMap(project) {
-  return new Map((project.sequences || []).map((sequence) => [sequence.id, sequence]));
-}
-
-async function performOcr(file) {
-  if (file.ocrText) {
-    return file.ocrText;
+  const buf = dataUrlToBuffer(payload.fileBase64 || "");
+  const tmp = await writeTempFile(payload.fileName || "recap.pdf", buf);
+  try {
+    const raw = await spawnCmd(PYTHON, [path.join(ROOT, "scripts", "extract_recap.py"), tmp]);
+    return JSON.parse(raw);
+  } finally {
+    fs.unlink(tmp).catch(() => {});
   }
-  const extension = path.extname(file.name || ".png") || ".png";
-  const tempPath = await writeTempFile(file.name || `capture${extension}`, dataUrlToBuffer(file.dataUrl));
-  const raw = await spawnCommand("powershell", [
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    path.join(ROOT, "scripts", "ocr_image.ps1"),
-    "-Path",
-    tempPath,
-  ]);
-  return raw.trim();
 }
 
+// ── V1/V2 processing ─────────────────────────────────────────
 async function processEntries(project, options = {}) {
-  const sequences = sequenceLookupMap(project);
+  const seqMap = new Map((project.sequences || []).map(s => [s.id, s]));
   const entries = [];
 
-  for (const incoming of project.entries || []) {
-    const sequence = sequences.get(incoming.sequenceId) || {};
-    const sourceParts = [];
+  for (const inc of project.entries || []) {
+    const seq = seqMap.get(inc.sequenceId) || {};
+    const parts = [];
     const files = [];
 
-    for (const file of incoming.files || []) {
+    for (const file of inc.files || []) {
       let ocrText = file.ocrText || "";
       if (options.runOcr !== false && file.dataUrl) {
         try {
-          ocrText = await performOcr(file);
-        } catch (error) {
-          ocrText = file.ocrText || "";
-        }
+          const tmp = await writeTempFile(file.name || "img.jpg", dataUrlToBuffer(file.dataUrl));
+          const raw = await spawnCmd("powershell", [
+            "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", path.join(ROOT, "scripts", "ocr_image.ps1"),
+            "-Path", tmp,
+          ]);
+          fs.unlink(tmp).catch(() => {});
+          ocrText = raw.trim();
+        } catch {}
       }
-      
-      // CORRECTION: Nettoyer le texte OCR pour éliminer les bruits parasites
-      const cleanedOcr = cleanOcrText(ocrText);
-      const hasNoise = ocrText && isOcrNoiseDetected(ocrText);
-      
-      files.push({
-        ...file,
-        ocrText: cleanedOcr,
-        rawOcrText: ocrText, // Garder l'original pour debug
-        status: cleanedOcr ? "done" : hasNoise ? "noise-detected" : "missing",
-        qualityNote: hasNoise ? "Texte à vérifier - bruit OCR détecté" : "",
-      });
-      
-      if (cleanedOcr) {
-        sourceParts.push(cleanedOcr);
-      }
+      const cleaned = cleanOcrText(ocrText);
+      files.push({ ...file, ocrText: cleaned, status: cleaned ? "done" : "missing" });
+      if (cleaned) parts.push(cleaned);
     }
 
-    // CORRECTION: Créer le brouillon UNE SEULE FOIS avec le texte nettoyé
-    let sourceText = [incoming.manualText || "", ...sourceParts].filter(Boolean).join("\n\n");
-    
-    // CORRECTION: Nettoyer AUSSI le texte extrait du PDF (corruptions OCR)
-    sourceText = cleanOcrText(sourceText);
-    
-    const draft = createAnalysisDraft({
-      sequence,
-      al: {
-        ...incoming,
-        id: incoming.id || `AL-${Date.now()}`,
-        label: incoming.label || incoming.id,
-      },
-      sourceText,
-    });
-
-    // ELITE QUALITY TRANSFORMATION: Apply pedagogical superiority algorithms
-    const eliteDraft = eliteQualityTransform(draft);
-
-    // CORRECTION: Ne pas réappeler ensureCompleteEntry - le draft l'a déjà fait
-    const completed = {
-      ...incoming,
-      ...eliteDraft, // Use elite-transformed draft
-      files,
-      sequenceMeta: sequence,
-      sequenceLabel: sequence.label,
-      sourceText: eliteDraft.sourceText,
-      id: eliteDraft.id, // Assurer que chaque AL a un ID unique
-    };
+    const sourceText = cleanOcrText([inc.manualText || "", ...parts].filter(Boolean).join("\n\n"));
+    const draft = createAnalysisDraft({ sequence: seq, al: { ...inc }, sourceText });
+    const elite = eliteQualityTransform(draft);
 
     entries.push({
-      ...completed,
+      ...inc, ...elite, files,
+      sequenceMeta: seq,
+      sequenceLabel: seq.label || inc.sequenceLabel || "",
       status: {
-        ocr: files.some((file) => file.status === "done") ? "done" : files.some((file) => file.status === "noise-detected") ? "needs-review" : "waiting",
-        structuring: completed.movements && completed.movements.length > 0 ? "done" : "waiting",
-        analysis: completed.oralBullets && completed.oralBullets.length > 0 ? "done" : "waiting",
+        ocr: files.some(f => f.status === "done") ? "done" : "waiting",
+        structuring: elite.movements?.length ? "done" : "waiting",
+        analysis: elite.oralBullets?.length ? "done" : "waiting",
         export: "ready",
       },
     });
   }
 
-  return {
-    ...project,
-    entries,
-  };
+  return { ...project, entries };
 }
 
 async function applySmartAction(project, action) {
+  const fns = {
+    simplify: simplifyAnalysisEntry,
+    "fix-weak": fixWeakAnalyses,
+    highlight: highlightKeyProcedures,
+  };
+  const fn = fns[action];
+  if (!fn) return project;
   return {
     ...project,
-    entries: (project.entries || []).map((entry) => {
-      // Créer une copie profonde pour éviter les mutations partagées
-      const entryCopy = JSON.parse(JSON.stringify(entry));
-      
-      if (action === "simplify") {
-        return simplifyAnalysisEntry(entryCopy);
-      }
-      if (action === "fix-weak") {
-        return fixWeakAnalyses(entryCopy);
-      }
-      if (action === "highlight") {
-        return highlightKeyProcedures(entryCopy);
-      }
-      return entryCopy;
-    }),
+    entries: (project.entries || []).map(e => fn(JSON.parse(JSON.stringify(e)))),
   };
 }
 
-async function serveStaticAsset(request, response, filePath) {
+// ── HTTP Server ──────────────────────────────────────────────
+const server = http.createServer(async (req, res) => {
   try {
-    const file = await fs.readFile(filePath);
-    const extension = path.extname(filePath);
-    response.writeHead(200, {
-      "Content-Type": MIME_TYPES[extension] || "application/octet-stream",
-    });
-    response.end(file);
-  } catch (error) {
-    notFound(response);
-  }
-}
+    const url = new URL(req.url || "/", "http://localhost");
+    const { pathname } = url;
 
-const server = http.createServer(async (request, response) => {
-  try {
-    const url = new URL(request.url || "/", "http://localhost");
-    
-    // Debug: Log API requests
-    if (url.pathname.startsWith('/api/')) {
-      console.log(`[Server] ${request.method} ${url.pathname}`);
+    if (pathname.startsWith("/api/")) {
+      console.log(`[Server] ${req.method} ${pathname}`);
     }
 
-    if (request.method === "OPTIONS") {
-      response.writeHead(204, {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       });
-      response.end();
-      return;
+      return res.end();
     }
 
-    if (request.method === "GET" && url.pathname === "/api/health") {
-      sendJson(response, 200, { ok: true });
-      return;
+    // ── Health ────────────────────────────────────────────────
+    if (req.method === "GET" && pathname === "/api/health") {
+      return sendJson(res, 200, {
+        ok: true,
+        version: "3.1",
+        python: PYTHON,
+        apiKey: !!ANTHROPIC_API_KEY,
+      });
     }
 
-    if (request.method === "POST" && url.pathname === "/api/recap/parse") {
-      const payload = await readRequestBody(request);
-      const recap = await parseRecap(payload);
-      sendJson(response, 200, recap);
-      return;
+    // ── V1/V2 routes ─────────────────────────────────────────
+    if (req.method === "POST" && pathname === "/api/recap/parse") {
+      const b = await readBody(req);
+      return sendJson(res, 200, await parseRecap(b));
     }
 
-    if (request.method === "POST" && url.pathname === "/api/process") {
-      const payload = await readRequestBody(request);
-      let project = await processEntries(payload.project || {}, payload.options || {});
-      // V2 Enhancement: Apply V2 processing to all entries
-      project = applyV2Processing(project);
-      sendJson(response, 200, project);
-      return;
+    if (req.method === "POST" && pathname === "/api/process") {
+      const b = await readBody(req);
+      return sendJson(res, 200, await processEntries(b.project || {}, b.options || {}));
     }
 
-    // V2 Enhancement: New endpoint for V2 project summary
-    if (request.method === "POST" && url.pathname === "/api/v2/summary") {
-      const payload = await readRequestBody(request);
-      const summary = generateV2Summary(payload.project || {});
-      sendJson(response, 200, summary);
-      return;
+    if (req.method === "POST" && pathname === "/api/action") {
+      const b = await readBody(req);
+      return sendJson(res, 200, await applySmartAction(b.project || {}, b.action || ""));
     }
 
-    // V2 Enhancement: New endpoint for V2 data export
-    if (request.method === "POST" && url.pathname === "/api/v2/export") {
-      const payload = await readRequestBody(request);
-      const format = payload.format || 'json';
-      const data = exportV2Data(payload.project || {}, format);
-      sendJson(response, 200, { data, format });
-      return;
-    }
-
-    if (request.method === "POST" && url.pathname === "/api/action") {
-      const payload = await readRequestBody(request);
-      const project = await applySmartAction(payload.project || {}, payload.action || "");
-      sendJson(response, 200, project);
-      return;
-    }
-
-    if (request.method === "POST" && url.pathname === "/api/export") {
-      const payload = await readRequestBody(request);
+    if (req.method === "POST" && pathname === "/api/export") {
+      const b = await readBody(req);
       const file = await exportWorkbook({
-        project: payload.project || {},
-        scope: payload.scope || { type: "full" },
-        options: payload.options || {},
+        project: b.project || {},
+        scope: b.scope || { type: "full" },
+        options: b.options || {},
         outputDir: OUTPUT_DIR,
       });
-      sendJson(response, 200, {
-        ...file,
-        downloadUrl: `/outputs/${file.fileName}`,
-      });
-      return;
+      return sendJson(res, 200, { ...file, downloadUrl: `/outputs/${file.fileName}` });
     }
 
-    // V3 Endpoints - AI-Powered AL Digitization
+    // ── V3 Upload ─────────────────────────────────────────────
+    if (req.method === "POST" && pathname === "/api/v3/upload") {
+      const ct = req.headers["content-type"] || "";
+      let imagePaths = [];
 
-    if (request.method === "POST" && url.pathname === "/api/v3/upload") {
       try {
-        const { fields } = await parseMultipartFormData(request, TMP_DIR);
-        const uploadedFile = fields.file;
-        
-        if (!uploadedFile || !uploadedFile.filepath) {
-          sendJson(response, 400, { error: "No file uploaded" });
-          return;
-        }
-
-        const fileName = uploadedFile.filename || `upload_${Date.now()}`;
-        const filePath = uploadedFile.filepath;
-
-        // Extract from uploaded file
-        const extraction = await extractFromImage(filePath);
-        const stored = await storeAL(extraction);
-
-        // Clean up temp file
-        try {
-          await fs.unlink(filePath);
-        } catch (e) {
-          console.warn(`Failed to clean up temp file: ${filePath}`);
-        }
-
-        sendJson(response, 200, {
-          success: true,
-          alId: extraction.id,
-          title: extraction.title,
-          stats: stored.stats,
-        });
-      } catch (err) {
-        sendJson(response, 500, { error: err.message });
-      }
-      return;
-    }
-
-    if (request.method === "POST" && url.pathname === "/api/v3/process") {
-      const payload = await readRequestBody(request);
-      const alId = payload.id;
-      
-      try {
-        const al = getAL(alId);
-        if (!al) {
-          sendJson(response, 404, { error: "AL not found" });
-          return;
-        }
-
-        const { al: completed, flaggedItems } = await completeMissingProcedures(al);
-        const confidence = calculateConfidenceScore(completed);
-        const flags = identifyFlaggedItems(completed);
-
-        sendJson(response, 200, {
-          success: true,
-          alId: completed.id,
-          title: completed.title,
-          completionScore: confidence.percentage,
-          flagged: flags,
-          flaggedCount: flags.length,
-        });
-      } catch (err) {
-        sendJson(response, 500, { error: err.message });
-      }
-      return;
-    }
-
-    if (request.method === "GET" && url.pathname.startsWith("/api/v3/review?")) {
-      const alId = new URL(request.url, "http://localhost").searchParams.get("id");
-      
-      try {
-        const flagged = getFlaggedItems(alId);
-        sendJson(response, 200, {
-          alId,
-          flaggedItems: flagged,
-        });
-      } catch (err) {
-        sendJson(response, 500, { error: err.message });
-      }
-      return;
-    }
-
-    if (request.method === "PUT" && url.pathname.startsWith("/api/v3/review?")) {
-      const payload = await readRequestBody(request);
-      
-      try {
-        for (const [flagId, resolution] of Object.entries(payload.decisions || {})) {
-          resolveFlaggedItem(flagId, resolution);
-        }
-        sendJson(response, 200, { success: true, updated: Object.keys(payload.decisions || {}).length });
-      } catch (err) {
-        sendJson(response, 500, { error: err.message });
-      }
-      return;
-    }
-
-    if (request.method === "POST" && url.pathname === "/api/v3/export") {
-      const payload = await readRequestBody(request);
-      const alId = payload.id;
-      const format = payload.format || "json";
-      
-      try {
-        const al = getAL(alId);
-        if (!al) {
-          sendJson(response, 404, { error: "AL not found" });
-          return;
-        }
-
-        let result;
-        if (format === "excel") {
-          result = await exportToExcel(al);
-        } else if (format === "pdf") {
-          result = await exportToPDF(al);
+        if (ct.includes("multipart/form-data")) {
+          const { fields } = await parseMultipartFormData(req, TMP_DIR);
+          // Handle both single file and multiple files
+          const fileFields = Object.values(fields).filter(f => f && f.filepath);
+          for (const f of fileFields) imagePaths.push(f.filepath);
         } else {
-          result = await exportToJSON(al);
+          // JSON with base64 dataUrls
+          const b = await readBody(req);
+          const imgs = Array.isArray(b.images) ? b.images : [b];
+          for (const img of imgs) {
+            if (img.dataUrl) {
+              imagePaths.push(await writeTempFile(img.name || "upload.jpg", dataUrlToBuffer(img.dataUrl)));
+            }
+          }
         }
 
-        sendJson(response, 200, {
+        if (!imagePaths.length) {
+          return sendJson(res, 400, { error: "No images received" });
+        }
+
+        const extraction = await extractFromImages(imagePaths, ANTHROPIC_API_KEY);
+        const { alId } = storeAL(extraction);
+
+        return sendJson(res, 200, {
           success: true,
-          format,
-          file: result.file,
-          downloadUrl: `/outputs/${path.basename(result.file)}`,
+          alId,
+          title: extraction.title,
+          genre: extraction.genre,
+          movementCount: (extraction.movements || []).length,
         });
-      } catch (err) {
-        sendJson(response, 500, { error: err.message });
+
+      } finally {
+        // Always clean up temp files
+        for (const p of imagePaths) fs.unlink(p).catch(() => {});
       }
-      return;
     }
 
-    if (request.method === "GET" && url.pathname === "/api/v3/als") {
-      try {
-        console.log('[Server] Fetching all ALs from storage...');
-        const als = getAllALs();
-        console.log(`[Server] Found ${als.length} ALs`);
-        sendJson(response, 200, { als });
-      } catch (err) {
-        console.error('[Server] Error in /api/v3/als:', err.message, err.stack);
-        sendJson(response, 500, { error: err.message });
-      }
-      return;
+    // ── V3 Get all ALs ────────────────────────────────────────
+    if (req.method === "GET" && pathname === "/api/v3/als") {
+      const als = getAllALs();
+      console.log(`[Server] Found ${als.length} ALs`);
+      return sendJson(res, 200, { als });
     }
 
-    if (request.method === "GET" && url.pathname.startsWith("/api/v3/als/")) {
-      const alId = url.pathname.replace("/api/v3/als/", "");
-      
-      try {
-        const stats = getALStats(alId);
-        if (!stats) {
-          sendJson(response, 404, { error: "AL not found" });
-          return;
-        }
-        sendJson(response, 200, stats);
-      } catch (err) {
-        sendJson(response, 500, { error: err.message });
-      }
-      return;
+    // ── V3 Get single AL ──────────────────────────────────────
+    if (req.method === "GET" && pathname.startsWith("/api/v3/als/")) {
+      const id = pathname.replace("/api/v3/als/", "");
+      const al = getAL(id);
+      if (!al) return notFound(res);
+      return sendJson(res, 200, al);
     }
 
-    if (request.method === "GET" && url.pathname.startsWith("/outputs/")) {
-      await serveStaticAsset(response.req, response, path.join(OUTPUT_DIR, decodeURIComponent(url.pathname.replace("/outputs/", ""))));
-      return;
+    // ── V3 Delete AL ──────────────────────────────────────────
+    if (req.method === "DELETE" && pathname.startsWith("/api/v3/als/")) {
+      const id = pathname.replace("/api/v3/als/", "");
+      deleteAL(id);
+      return sendJson(res, 200, { ok: true });
     }
 
-    // Favicon handler
-    if (url.pathname === "/favicon.ico") {
-      response.writeHead(200, {
-        "Content-Type": "image/x-icon",
-        "Cache-Control": "max-age=31536000",
+    // ── V3 Export ─────────────────────────────────────────────
+    if (req.method === "POST" && pathname === "/api/v3/export") {
+      const b = await readBody(req);
+      const entries = b.alId ? [getAL(b.alId)].filter(Boolean) : getAllALs();
+      if (!entries.length) return sendJson(res, 404, { error: "No ALs to export" });
+
+      const file = await exportWorkbook({
+        project: { entries, sequences: [] },
+        scope: b.alId ? { type: "single", value: b.alId } : { type: "full" },
+        options: { mode: b.mode || "minimalist" },
+        outputDir: OUTPUT_DIR,
       });
-      // Minimal 1x1 favicon ICO
-      response.end(Buffer.from([
-        0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10, 0x00, 0x00, 0x01, 0x00, 0x18, 0x00, 0x30, 0x00,
-        0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x20, 0x00,
-        0x00, 0x00, 0x01, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      ]));
-      return;
+      return sendJson(res, 200, { ...file, downloadUrl: `/outputs/${file.fileName}` });
     }
 
-    let assetPath = url.pathname === "/" ? path.join(WEB_DIR, "index.html") : path.join(WEB_DIR, url.pathname);
-    if (!assetPath.startsWith(WEB_DIR)) {
-      notFound(response);
-      return;
+    // ── V3 Stats ──────────────────────────────────────────────
+    if (req.method === "GET" && pathname.startsWith("/api/v3/stats/")) {
+      const id = pathname.replace("/api/v3/stats/", "");
+      const stats = getALStats(id);
+      if (!stats) return notFound(res);
+      return sendJson(res, 200, stats);
     }
 
-    await serveStaticAsset(request, response, assetPath);
-  } catch (error) {
-    sendJson(response, 500, {
-      error: error.message || "Server error",
-    });
+    // ── Serve outputs ─────────────────────────────────────────
+    if (pathname.startsWith("/outputs/")) {
+      const p = path.join(OUTPUT_DIR, decodeURIComponent(pathname.replace("/outputs/", "")));
+      if (!p.startsWith(OUTPUT_DIR)) return notFound(res);
+      return serveStatic(req, res, p);
+    }
+
+    // ── Favicon ───────────────────────────────────────────────
+    if (pathname === "/favicon.ico") {
+      res.writeHead(200, { "Content-Type": "image/x-icon" });
+      return res.end(Buffer.alloc(0));
+    }
+
+    // ── Static files ──────────────────────────────────────────
+    const asset = pathname === "/"
+      ? path.join(WEB_DIR, "index.html")
+      : path.join(WEB_DIR, pathname.replace(/^\//, ""));
+    if (!asset.startsWith(WEB_DIR)) return notFound(res);
+    return serveStatic(req, res, asset);
+
+  } catch (err) {
+    serverError(res, err);
   }
 });
 
-await ensureDirectories();
+// ── Boot ─────────────────────────────────────────────────────
+await fs.mkdir(OUTPUT_DIR, { recursive: true });
+await fs.mkdir(TMP_DIR, { recursive: true });
+await fs.mkdir(DATA_DIR, { recursive: true });
 
-// Initialize database
-try {
-  initializeDatabase();
-  console.log('[Server] V3 database initialized');
-} catch (err) {
-  console.error('[Server] Failed to initialize V3 database:', err.message);
-}
+initializeDatabase(DATA_DIR);
 
-const port = Number(process.env.PORT || 4173);
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Bac Oral Studio running on http://127.0.0.1:${port}`);
+const PORT = Number(process.env.PORT || 4173);
+server.listen(PORT, "127.0.0.1", () => {
+  console.log(`\n  Bac Oral Studio v3.1`);
+  console.log(`  http://127.0.0.1:${PORT}`);
+  console.log(`  Python: ${PYTHON}`);
+  console.log(`  API Key: ${ANTHROPIC_API_KEY ? "YES (vision mode)" : "NO (OCR mode)"}\n`);
 });
