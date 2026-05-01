@@ -7,7 +7,10 @@
     "start": "powershell -ExecutionPolicy Bypass -File run_bac_oral_studio.ps1"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.92.0",
     "better-sqlite3": "^12.9.0",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "pdfkit": "^0.18.0"
   }
 }

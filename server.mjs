@@ -15,6 +15,7 @@ import { exportToExcel } from "./lib/v3-excel-exporter.mjs";
 import { exportToJSON } from "./lib/v3-json-exporter.mjs";
 import { exportToPDF } from "./lib/v3-pdf-exporter.mjs";
 import { parseMultipartFormData } from "./lib/multipart-parser.mjs";
+import { execSync } from "node:child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +23,18 @@ const ROOT = __dirname;
 const WEB_DIR = path.join(ROOT, "web");
 const OUTPUT_DIR = path.join(ROOT, "outputs");
 const TMP_DIR = path.join(ROOT, "tmp");
-const PYTHON = "C:\\Users\\iyadf\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe";
+
+// Auto-detect Python installation
+function findPython() {
+  for (const cmd of ["python3", "python", "py"]) {
+    try {
+      execSync(`${cmd} --version`, { stdio: "ignore" });
+      return cmd;
+    } catch {}
+  }
+  return "python";
+}
+const PYTHON = findPython();
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",

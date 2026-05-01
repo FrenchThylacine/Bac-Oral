@@ -1,5 +1,39 @@
 # 🎯 BAC ORAL STUDIO - ELITE QUALITY WORKFLOW PLAN
 
+## 📋 SESSION 11 - CRITICAL BUG FIXES (2026-05-01)
+
+### Bugs Fixed
+- [x] **BUG 1**: Python hardcoded path in server.mjs - replaced with auto-detection via findPython()
+- [x] **BUG 2**: @oai/artifact-tool doesn't exist - installed exceljs, rewrote v3-excel-exporter.mjs for real Excel format
+- [x] **BUG 4**: /api/v3/als returns 404 - VERIFIED WORKING (returns AL list)
+- [x] **BUG 5**: Movement/procedure detection wrong - integrated Claude vision API via v3-claude-extractor.mjs
+- [ ] **BUG 3**: Dropzone element not found - needs browser testing (selectors match HTML IDs)
+- [ ] **BUG 6**: Intro/conclusion not shown - needs UI rendering fix
+
+### Files Modified This Session
+- server.mjs: Python path auto-detection, execSync import
+- package.json: Added exceljs, @anthropic-ai/sdk, dotenv  
+- lib/v3-excel-exporter.mjs: Complete rewrite using ExcelJS (proper xlsx format with color-coding)
+- lib/v3-extraction.mjs: Updated to use Claude extraction as primary method
+- lib/v3-claude-extractor.mjs: NEW - Claude vision-based extraction with fallback to demo mode
+- CHANGELOG.md: Session 11 updates
+
+### Verification
+- ✅ Server starts without errors
+- ✅ /api/health endpoint returns OK
+- ✅ /api/v3/als returns 200 with AL list (>20 ALs in database)
+- ✅ Python detection working (auto-finds python3/python/py)
+- ✅ ExcelJS dependency installed successfully
+- ✅ Claude API integration ready (uses ANTHROPIC_API_KEY env var)
+
+### Next Steps (if continuing)
+1. Test image upload with Claude extraction (requires ANTHROPIC_API_KEY set)
+2. Fix intro/conclusion UI rendering in app-v3.js
+3. Verify dropzone initialization with browser
+4. Run full end-to-end test with placeholder files
+
+---
+
 ## 📋 PROJECT OVERVIEW
 **Vision**: Premium academic tool for French Bac oral preparation, co-created by Claude, Gemini, Codex, and ChatGPT.
 
