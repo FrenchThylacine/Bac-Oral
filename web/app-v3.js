@@ -240,7 +240,9 @@ async function processAllV3Files() {
 async function processV3File(item) {
   try {
     item.status = 'processing';
+    item.error = null;
     renderV3Queue();
+    console.log(`[V3] Processing: ${item.file.name}`);
 
     // Step 1: Upload and extract
     item.progress = 25;
@@ -250,56 +252,50 @@ async function processV3File(item) {
     formData.append('file', item.file);
     formData.append('fileName', item.file.name);
 
+    console.log(`[V3] Uploading ${item.file.name}...`);
     const uploadRes = await fetch(`${V3_CONFIG.apiBase}/upload`, {
       method: 'POST',
       body: formData,
     });
 
-    if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.statusText}`);
+    if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status} ${uploadRes.statusText}`);
 
     const uploadData = await uploadRes.json();
     if (!uploadData.success) throw new Error(uploadData.error || 'Upload failed');
 
     const alId = uploadData.alId;
+    console.log(`[V3] Uploaded successfully: ${alId}`);
     item.progress = 50;
     renderV3Queue();
 
-    // Step 2: Process (complete + validate)
-    const processRes = await fetch(`${V3_CONFIG.apiBase}/process`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: alId }),
-    });
-
-    if (!processRes.ok) throw new Error(`Processing failed: ${processRes.statusText}`);
-
-    const processData = await processRes.json();
-    item.progress = 75;
-    renderV3Queue();
-
-    // Step 3: Fetch full AL data
+    // Step 2: Fetch full AL data (already processed by upload endpoint)
+    console.log(`[V3] Fetching full AL data...`);
     const getRes = await fetch(`${V3_CONFIG.apiBase}/als/${alId}`);
-    if (!getRes.ok) throw new Error('Failed to fetch AL data');
+    if (!getRes.ok) throw new Error(`Failed to fetch AL data: ${getRes.status}`);
 
     const alData = await getRes.json();
     item.progress = 100;
     item.status = 'complete';
     item.result = {
       alId,
-      title: uploadData.title,
-      completionScore: processData.completionScore,
-      flaggedCount: processData.flaggedCount,
+      title: uploadData.title || alData.title,
+      movementCount: uploadData.movementCount || alData.movementCount || 0,
+      procedureCount: alData.procedureCount || 0,
+      completionScore: alData.completionPercent || 0,
       al: alData,
     };
 
     v3State.processedALs.push(item.result);
     renderV3Queue();
-    showToast('Processed', `${uploadData.title} completed`, 'success');
+    console.log(`[V3] Processing complete: ${item.result.title}`);
+    showToastV3('Processed', `${item.result.title}: ${item.result.movementCount} movements, ${item.result.procedureCount} procedures`, 'success');
   } catch (err) {
     item.status = 'error';
+    item.error = err.message;
     item.result = { error: err.message };
     renderV3Queue();
-    showToast('Error', `Failed to process ${item.file.name}: ${err.message}`, 'error');
+    console.error('[V3] Processing error:', err);
+    showToastV3('Error', `Failed to process ${item.file.name}: ${err.message}`, 'error');
   }
 }
 
@@ -390,12 +386,14 @@ async function approveAllV3Flags() {
 
 async function refreshV3Status() {
   try {
+    console.log('[V3] Refreshing status...');
     // Fetch all ALs
     const res = await fetch(`${V3_CONFIG.apiBase}/als`);
-    if (!res.ok) throw new Error('Failed to fetch ALs');
+    if (!res.ok) throw new Error(`Failed to fetch ALs: ${res.status} ${res.statusText}`);
 
     const data = await res.json();
     const als = data.als || [];
+    console.log(`[V3] Fetched ${als.length} ALs`);
 
     // Calculate stats
     const totalCompletion = als.length > 0
@@ -423,9 +421,14 @@ async function refreshV3Status() {
     }
 
     // Render AL list
+    console.log(`[V3] Rendering ${als.length} ALs`);
     renderV3ALList(als);
+    if (als.length > 0) {
+      showToastV3('Status Updated', `${als.length} AL${als.length !== 1 ? 's' : ''} loaded`, 'success');
+    }
   } catch (err) {
-    showToast('Error', `Failed to refresh status: ${err.message}`, 'error');
+    console.error('[V3] Refresh error:', err);
+    showToastV3('Error', `Failed to refresh status: ${err.message}`, 'error');
   }
 }
 
@@ -463,6 +466,13 @@ function renderV3ALList(als) {
 
   if (v3Elements.alCount) {
     v3Elements.alCount.textContent = `${als.length} AL${als.length !== 1 ? 's' : ''}`;
+  }
+  
+  // Scroll to AL list when results are available
+  if (als.length > 0 && v3Elements.alList) {
+    setTimeout(() => {
+      v3Elements.alList.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 300);
   }
 }
 
@@ -599,7 +609,21 @@ function initV3Module() {
   initV3Elements();
   setupV3FileUpload();
   setupV3EventListeners();
+  
+  // Initial load
+  console.log('[V3] Initializing module...');
   refreshV3Status();
+  
+  // Auto-refresh when page becomes visible
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      console.log('[V3] Page became visible, refreshing...');
+      refreshV3Status();
+    }
+  });
+  
+  // Periodic refresh every 10 seconds
+  setInterval(refreshV3Status, 10000);
 }
 
 // Initialize on page load
