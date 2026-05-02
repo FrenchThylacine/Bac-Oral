@@ -1,48 +1,87 @@
+# scripts/ocr_image.ps1
+# Windows OCR via Windows.Media.Ocr — French language support
+# Usage: powershell -File ocr_image.ps1 -Path "C:\path\to\image.jpg"
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$Path
+    [Parameter(Mandatory=$true)]
+    [string]$Path
 )
 
-$ErrorActionPreference = "Stop"
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
+try {
+    # Load required assemblies
+    Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
-function Await-WinRT {
-  param(
-    [Parameter(Mandatory = $true)]
-    [object]$Operation,
-    [Parameter(Mandatory = $true)]
-    [type]$ResultType
-  )
+    $null = [Windows.Storage.StorageFile,          Windows.Storage,   ContentType=WindowsRuntime]
+    $null = [Windows.Media.Ocr.OcrEngine,          Windows.Foundation,ContentType=WindowsRuntime]
+    $null = [Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics, ContentType=WindowsRuntime]
+    $null = [Windows.Globalization.Language,        Windows.Foundation,ContentType=WindowsRuntime]
 
-  $method = [System.WindowsRuntimeSystemExtensions].GetMethods() |
-    Where-Object {
-      $_.Name -eq "AsTask" -and
-      $_.IsGenericMethod -and
-      $_.GetParameters().Count -eq 1
-    } |
-    Select-Object -First 1
+    # Helper to await WinRT async operations
+    $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
+        Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
+            $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
 
-  $task = $method.MakeGenericMethod($ResultType).Invoke($null, @($Operation))
-  $task.Wait()
-  return $task.Result
+    function Await($WinRtTask, $ResultType) {
+        $asTaskSpecialized = $asTaskGeneric.MakeGenericMethod($ResultType)
+        $netTask = $asTaskSpecialized.Invoke($null, @($WinRtTask))
+        $netTask.Wait(-1) | Out-Null
+        $netTask.Result
+    }
+
+    # Resolve absolute path
+    $absolutePath = [System.IO.Path]::GetFullPath($Path)
+    if (-not [System.IO.File]::Exists($absolutePath)) {
+        Write-Error "File not found: $absolutePath"
+        exit 1
+    }
+
+    # Load image file
+    $file = Await `
+        ([Windows.Storage.StorageFile]::GetFileFromPathAsync($absolutePath)) `
+        ([Windows.Storage.StorageFile])
+
+    $stream = Await `
+        ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) `
+        ([Windows.Storage.Streams.IRandomAccessStream])
+
+    $decoder = Await `
+        ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) `
+        ([Windows.Graphics.Imaging.BitmapDecoder])
+
+    $bitmap = Await `
+        ($decoder.GetSoftwareBitmapAsync()) `
+        ([Windows.Graphics.Imaging.SoftwareBitmap])
+
+    # Try French first, fall back to user language
+    $engine = $null
+    try {
+        $lang = [Windows.Globalization.Language]::new('fr')
+        if ([Windows.Media.Ocr.OcrEngine]::IsLanguageSupported($lang)) {
+            $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)
+        }
+    } catch {}
+
+    if (-not $engine) {
+        $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+    }
+
+    if (-not $engine) {
+        Write-Error "No OCR engine available"
+        exit 1
+    }
+
+    # Run OCR
+    $result = Await `
+        ($engine.RecognizeAsync($bitmap)) `
+        ([Windows.Media.Ocr.OcrResult])
+
+    # Output each line
+    foreach ($line in $result.Lines) {
+        Write-Output $line.Text
+    }
+
+    exit 0
+
+} catch {
+    Write-Error "OCR Error: $_"
+    exit 1
 }
-
-$null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
-$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType = WindowsRuntime]
-$null = [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, ContentType = WindowsRuntime]
-$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
-$null = [Windows.Storage.FileAccessMode, Windows.Storage, ContentType = WindowsRuntime]
-
-$file = Await-WinRT ([Windows.Storage.StorageFile]::GetFileFromPathAsync($Path)) ([Windows.Storage.StorageFile])
-$stream = Await-WinRT ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
-$decoder = Await-WinRT ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-$bitmap = Await-WinRT ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-$converted = [Windows.Graphics.Imaging.SoftwareBitmap]::Convert(
-  $bitmap,
-  [Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,
-  [Windows.Graphics.Imaging.BitmapAlphaMode]::Premultiplied
-)
-$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-$result = Await-WinRT ($engine.RecognizeAsync($converted)) ([Windows.Media.Ocr.OcrResult])
-Write-Output ($result.Text -replace "\r", "")
