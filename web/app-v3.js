@@ -1,634 +1,534 @@
-/**
- * V3 AI Digitization Module
- * Handles file uploads, processing, review, and export for AL digitization
- * 
- * Bug Fixes:
- * - Removed all emojis
- * - Added null checks for all DOM elements
- * - Improved error handling and recovery
- * - Consistent async/await patterns
- * - Better logging and debugging
- */
+// web/app-v3.js — Bac Oral Studio V3 Frontend
+// Handles: upload, processing status, AL card display, export
+// All IDs match index.html contract exactly
+'use strict';
 
-const V3_CONFIG = {
-  maxFiles: 20,
-  maxFileSize: 50 * 1024 * 1024, // 50MB
-  batchSize: 5,
-  apiBase: '/api/v3',
-  requestTimeout: 60000,
-};
+(function () {
 
-// State
-const v3State = {
-  fileQueue: [],
-  processedALs: [],
-  flaggedItems: [],
-  currentProcessing: false,
-  completionScore: 0,
-  autoExport: true,
-};
+  // ── State ─────────────────────────────────────────────────
+  const state = {
+    queue: [],      // { id, file, name, status, result }
+    als: [],        // loaded from /api/v3/als
+    apiKey: localStorage.getItem('bos-v3-apikey') || '',
+  };
 
-// V3 DOM Elements (lazy loaded)
-const v3Elements = {};
+  // ── DOM refs (matched to index.html IDs) ──────────────────
+  const $ = id => document.getElementById(id);
 
-// Utility: HTML escaping
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
+  const els = {
+    dropzone:     $('v3-dropzone'),
+    fileInput:    $('v3-file-input'),
+    queue:        $('v3-queue'),
+    queueTitle:   $('v3-queue-title'),
+    queueList:    $('v3-queue-list'),
+    clearQueue:   $('v3-clear-queue'),
+    processBtn:   $('v3-process-btn'),
+    alList:       $('v3-al-list'),
+    log:          $('v3-log'),
+    statTotal:    $('v3-stat-total'),
+    statReady:    $('v3-stat-ready'),
+    statFlags:    $('v3-stat-flags'),
+    exportAll:    $('v3-export-all'),
+    exportMode:   $('v3-export-mode'),
+    downloadLink: $('v3-download-link'),
+    reviewSection:$('v3-review-section'),
+    reviewBody:   $('v3-review-body'),
+    apiKeyInput:  $('v3-api-key'),
+    saveKeyBtn:   $('v3-save-key'),
+    keyStatus:    $('v3-key-status'),
+  };
 
-// Utility: Safe element getter
-function getV3Element(selector) {
-  try {
-    return document.querySelector(selector);
-  } catch (e) {
-    console.warn(`[V3] Failed to find element: ${selector}`, e);
-    return null;
-  }
-}
-
-// Initialize DOM elements
-function initV3Elements() {
-  v3Elements.dropzone = getV3Element('#v3-dropzone');
-  v3Elements.files = getV3Element('#v3-files');
-  v3Elements.queue = getV3Element('#v3-queue');
-  v3Elements.queueCount = getV3Element('#v3-queue-count');
-  v3Elements.processAllBtn = getV3Element('#v3-process-all');
-  v3Elements.clearQueueBtn = getV3Element('#v3-clear-queue');
-  v3Elements.processedCount = getV3Element('#v3-processed-count');
-  v3Elements.flaggedCount = getV3Element('#v3-flagged-count');
-  v3Elements.completionBar = getV3Element('#v3-completion-bar');
-  v3Elements.completionPct = getV3Element('#v3-completion-pct');
-  v3Elements.autoExportCheckbox = getV3Element('#v3-auto-export');
-  v3Elements.refreshStatusBtn = getV3Element('#v3-refresh-status');
-  v3Elements.reviewTable = getV3Element('#v3-review-table');
-  v3Elements.flaggedBadge = getV3Element('#v3-flagged-badge');
-  v3Elements.loadFlaggedBtn = getV3Element('#v3-load-flagged');
-  v3Elements.approveAllBtn = getV3Element('#v3-approve-all');
-  v3Elements.exportExcelBtn = getV3Element('#v3-export-excel');
-  v3Elements.exportPdfBtn = getV3Element('#v3-export-pdf');
-  v3Elements.exportJsonBtn = getV3Element('#v3-export-json');
-  v3Elements.exportAllBtn = getV3Element('#v3-export-all');
-  v3Elements.alList = getV3Element('#v3-al-list');
-  v3Elements.alCount = getV3Element('#v3-al-count');
-  v3Elements.uploadStatus = getV3Element('#v3-upload-status');
-}
-
-// Utility: Show notifications
-function showToastV3(title, message, type = 'info') {
-  console.log(`[V3][${type.toUpperCase()}] ${title}: ${message}`);
-  if (typeof showToast === 'function') {
-    showToast(title, message, type);
-  }
-}
-
-// ===== FILE UPLOAD HANDLERS =====
-
-function setupV3FileUpload() {
-  if (!v3Elements.dropzone) {
-    console.warn('[V3] Dropzone element not found');
-    return;
+  // ── Logging ───────────────────────────────────────────────
+  function log(msg, type = 'info') {
+    if (!els.log) return;
+    const row = document.createElement('div');
+    row.className = `log-row log-${type}`;
+    row.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    els.log.appendChild(row);
+    els.log.scrollTop = els.log.scrollHeight;
+    // Keep max 60 lines
+    while (els.log.children.length > 60) els.log.removeChild(els.log.firstChild);
   }
 
-  v3Elements.dropzone.addEventListener('click', () => {
-    if (v3Elements.files) {
-      v3Elements.files.click();
-    }
-  });
-
-  v3Elements.dropzone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    v3Elements.dropzone.classList.add('dragging');
-  });
-
-  v3Elements.dropzone.addEventListener('dragleave', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    v3Elements.dropzone.classList.remove('dragging');
-  });
-
-  v3Elements.dropzone.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    v3Elements.dropzone.classList.remove('dragging');
-    if (e.dataTransfer?.files) {
-      await handleV3FileSelect(e.dataTransfer.files);
-    }
-  });
-
-  if (v3Elements.files) {
-    v3Elements.files.addEventListener('change', async (e) => {
-      if (e.target?.files) {
-        await handleV3FileSelect(e.target.files);
-      }
-    });
-  }
-}
-
-async function handleV3FileSelect(files) {
-  if (!files || files.length === 0) {
-    showToastV3('No Files', 'No files selected', 'warning');
-    return;
-  }
-
-  const newFiles = Array.from(files).slice(0, V3_CONFIG.maxFiles - v3State.fileQueue.length);
-  
-  for (const file of newFiles) {
-    if (file.size > V3_CONFIG.maxFileSize) {
-      showToastV3('File Too Large', `${file.name} exceeds 50MB limit`, 'error');
-      continue;
-    }
-
-    const fileId = `v3_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    v3State.fileQueue.push({
-      id: fileId,
-      file,
-      status: 'pending',
-      progress: 0,
-      result: null,
-      error: null,
-    });
-  }
-
-  renderV3Queue();
-  updateV3Controls();
-  showToastV3('Files Added', `${newFiles.length} file(s) added to queue`, 'success');
-}
-
-function renderV3Queue() {
-  if (!v3Elements.queue) return;
-
-  if (v3State.fileQueue.length === 0) {
-    v3Elements.queue.innerHTML = '<div class="empty-state">No files in queue</div>';
-    return;
-  }
-
-  v3Elements.queue.innerHTML = v3State.fileQueue
-    .map((item) => {
-      const statusClass = item.status || 'pending';
-      const fileSize = (item.file.size / 1024 / 1024).toFixed(1);
-      
-      return `
-        <div class="queue-item queue-item-${statusClass}">
-          <div class="queue-item-content">
-            <div class="queue-item-info">
-              <span class="queue-item-name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</span>
-              <span class="queue-item-size">${fileSize}MB</span>
-            </div>
-            <div class="queue-item-progress">
-              <div class="progress-bar-small">
-                <div class="progress-fill-small" style="width: ${item.progress}%"></div>
-              </div>
-              <span class="queue-item-status">${statusClass}</span>
-            </div>
-            ${item.error ? `<div class="queue-item-error">${escapeHtml(item.error)}</div>` : ''}
-          </div>
-          ${item.status === 'pending' ? `
-            <button class="queue-item-remove" onclick="removeV3QueueItem('${item.id}')" type="button" title="Remove">Remove</button>
-          ` : ''}
-        </div>
-      `;
-    })
-    .join('');
-}
-
-function removeV3QueueItem(fileId) {
-  v3State.fileQueue = v3State.fileQueue.filter((f) => f.id !== fileId);
-  renderV3Queue();
-  updateV3Controls();
-}
-
-function updateV3Controls() {
-  if (v3Elements.queueCount) {
-    v3Elements.queueCount.textContent = v3State.fileQueue.length;
-  }
-  if (v3Elements.processAllBtn) {
-    v3Elements.processAllBtn.disabled = v3State.fileQueue.length === 0 || v3State.currentProcessing;
-  }
-  if (v3Elements.clearQueueBtn) {
-    v3Elements.clearQueueBtn.disabled = v3State.fileQueue.length === 0;
-  }
-}
-
-// ===== PROCESSING HANDLERS =====
-
-async function processAllV3Files() {
-  if (v3State.currentProcessing || v3State.fileQueue.length === 0) return;
-
-  v3State.currentProcessing = true;
-  updateV3Controls();
-
-  for (const item of v3State.fileQueue) {
-    if (item.status !== 'pending') continue;
-
-    await processV3File(item);
-  }
-
-  v3State.currentProcessing = false;
-  updateV3Controls();
-  await refreshV3Status();
-
-  if (v3State.autoExport && v3State.processedALs.length > 0) {
-    showToast('Processing Complete', 'Auto-exporting results...', 'success');
-    exportAllV3ALs();
-  }
-}
-
-async function processV3File(item) {
-  try {
-    item.status = 'processing';
-    item.error = null;
-    renderV3Queue();
-    console.log(`[V3] Processing: ${item.file.name}`);
-
-    // Step 1: Upload and extract
-    item.progress = 25;
-    renderV3Queue();
-
-    const formData = new FormData();
-    formData.append('file', item.file);
-    formData.append('fileName', item.file.name);
-
-    console.log(`[V3] Uploading ${item.file.name}...`);
-    const uploadRes = await fetch(`${V3_CONFIG.apiBase}/upload`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status} ${uploadRes.statusText}`);
-
-    const uploadData = await uploadRes.json();
-    if (!uploadData.success) throw new Error(uploadData.error || 'Upload failed');
-
-    const alId = uploadData.alId;
-    console.log(`[V3] Uploaded successfully: ${alId}`);
-    item.progress = 50;
-    renderV3Queue();
-
-    // Step 2: Fetch full AL data (already processed by upload endpoint)
-    console.log(`[V3] Fetching full AL data...`);
-    const getRes = await fetch(`${V3_CONFIG.apiBase}/als/${alId}`);
-    if (!getRes.ok) throw new Error(`Failed to fetch AL data: ${getRes.status}`);
-
-    const alData = await getRes.json();
-    item.progress = 100;
-    item.status = 'complete';
-    item.result = {
-      alId,
-      title: uploadData.title || alData.title,
-      movementCount: uploadData.movementCount || alData.movementCount || 0,
-      procedureCount: alData.procedureCount || 0,
-      completionScore: alData.completionPercent || 0,
-      al: alData,
-    };
-
-    v3State.processedALs.push(item.result);
-    renderV3Queue();
-    console.log(`[V3] Processing complete: ${item.result.title}`);
-    showToastV3('Processed', `${item.result.title}: ${item.result.movementCount} movements, ${item.result.procedureCount} procedures`, 'success');
-  } catch (err) {
-    item.status = 'error';
-    item.error = err.message;
-    item.result = { error: err.message };
-    renderV3Queue();
-    console.error('[V3] Processing error:', err);
-    showToastV3('Error', `Failed to process ${item.file.name}: ${err.message}`, 'error');
-  }
-}
-
-// ===== REVIEW HANDLERS =====
-
-async function loadFlaggedItems() {
-  try {
-    v3Elements.reviewTable.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
-
-    const allFlagged = [];
-    for (const al of v3State.processedALs) {
-      try {
-        const res = await fetch(`${V3_CONFIG.apiBase}/review?id=${al.alId}`);
-        if (res.ok) {
-          const data = await res.json();
-          allFlagged.push(...(data.flaggedItems || []));
-        }
-      } catch (e) {
-        console.warn('Failed to load flagged for', al.alId, e);
-      }
-    }
-
-    v3State.flaggedItems = allFlagged;
-    renderReviewTable();
-  } catch (err) {
-    showToast('Error', `Failed to load flagged items: ${err.message}`, 'error');
-  }
-}
-
-function renderReviewTable() {
-  if (!v3Elements.reviewTable) return;
-
-  if (v3State.flaggedItems.length === 0) {
-    v3Elements.reviewTable.innerHTML = '<tr class="empty-state"><td colspan="4">No flagged items.</td></tr>';
-    return;
-  }
-
-  v3Elements.reviewTable.innerHTML = v3State.flaggedItems
-    .map((item) => `
-      <tr data-flag-id="${item.id}">
-        <td>${escapeHtml(item.alTitle || 'Unknown')}</td>
-        <td>${escapeHtml(item.type || 'Unknown')}</td>
-        <td>
-          <span class="confidence-badge" style="opacity: ${item.confidence}">
-            ${Math.round(item.confidence * 100)}%
-          </span>
-        </td>
-        <td class="action-cell">
-          <button class="btn-icon" onclick="approveV3Flag('${item.id}', true)" title="Approve">✅</button>
-          <button class="btn-icon" onclick="approveV3Flag('${item.id}', false)" title="Reject">❌</button>
-        </td>
-      </tr>
-    `)
-    .join('');
-}
-
-async function approveV3Flag(flagId, approved) {
-  try {
-    const decisions = { [flagId]: approved ? 'approved' : 'rejected' };
-
-    // Find which AL this belongs to
-    const flag = v3State.flaggedItems.find((f) => f.id === flagId);
-    if (!flag) return;
-
-    const res = await fetch(`${V3_CONFIG.apiBase}/review?id=${flag.alId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decisions }),
-    });
-
-    if (!res.ok) throw new Error('Failed to resolve flag');
-
-    v3State.flaggedItems = v3State.flaggedItems.filter((f) => f.id !== flagId);
-    renderReviewTable();
-    showToast('Updated', approved ? 'Item approved' : 'Item rejected', 'success');
-  } catch (err) {
-    showToast('Error', err.message, 'error');
-  }
-}
-
-async function approveAllV3Flags() {
-  for (const flag of v3State.flaggedItems) {
-    await approveV3Flag(flag.id, true);
-  }
-}
-
-// ===== STATUS HANDLERS =====
-
-async function refreshV3Status() {
-  try {
-    console.log('[V3] Refreshing status...');
-    // Fetch all ALs
-    const res = await fetch(`${V3_CONFIG.apiBase}/als`);
-    if (!res.ok) throw new Error(`Failed to fetch ALs: ${res.status} ${res.statusText}`);
-
-    const data = await res.json();
-    const als = data.als || [];
-    console.log(`[V3] Fetched ${als.length} ALs`);
-
-    // Calculate stats
-    const totalCompletion = als.length > 0
-      ? Math.round(als.reduce((sum, al) => sum + (al.completionPercent || 0), 0) / als.length)
-      : 0;
-
-    // Update UI
-    if (v3Elements.processedCount) {
-      v3Elements.processedCount.textContent = als.length;
-    }
-    if (v3Elements.completionBar) {
-      v3Elements.completionBar.style.width = `${totalCompletion}%`;
-    }
-    if (v3Elements.completionPct) {
-      v3Elements.completionPct.textContent = `${totalCompletion}%`;
-    }
-
-    // Count flagged
-    const totalFlagged = als.reduce((sum, al) => sum + (al.flaggedCount || 0), 0);
-    if (v3Elements.flaggedCount) {
-      v3Elements.flaggedCount.textContent = totalFlagged;
-    }
-    if (v3Elements.flaggedBadge) {
-      v3Elements.flaggedBadge.textContent = totalFlagged;
-    }
-
-    // Render AL list
-    console.log(`[V3] Rendering ${als.length} ALs`);
-    renderV3ALList(als);
-    if (als.length > 0) {
-      showToastV3('Status Updated', `${als.length} AL${als.length !== 1 ? 's' : ''} loaded`, 'success');
-    }
-  } catch (err) {
-    console.error('[V3] Refresh error:', err);
-    showToastV3('Error', `Failed to refresh status: ${err.message}`, 'error');
-  }
-}
-
-function renderV3ALList(als) {
-  if (!v3Elements.alList) return;
-
-  if (als.length === 0) {
-    v3Elements.alList.innerHTML = '<div class="empty-state">No ALs processed yet.</div>';
-    if (v3Elements.alCount) {
-      v3Elements.alCount.textContent = '0 ALs';
-    }
-    return;
-  }
-
-  v3Elements.alList.innerHTML = als
-    .map((al) => `
-      <div class="al-item">
-        <div class="al-item-header">
-          <h4>${escapeHtml(al.title || 'Untitled')}</h4>
-          <span class="al-completion-badge">${al.completionPercent || 0}%</span>
-        </div>
-        <div class="al-item-meta">
-          <span>Movements: ${al.movementCount || 0}</span>
-          <span>Procedures: ${al.procedureCount || 0}</span>
-          ${al.flaggedCount > 0 ? `<span class="warning">⚠️ ${al.flaggedCount} flagged</span>` : ''}
-        </div>
-        <div class="al-item-actions">
-          <button class="btn-small" onclick="exportV3AL('${al.id}', 'json')">JSON</button>
-          <button class="btn-small" onclick="exportV3AL('${al.id}', 'excel')">Excel</button>
-          <button class="btn-small" onclick="exportV3AL('${al.id}', 'pdf')">PDF</button>
-        </div>
-      </div>
-    `)
-    .join('');
-
-  if (v3Elements.alCount) {
-    v3Elements.alCount.textContent = `${als.length} AL${als.length !== 1 ? 's' : ''}`;
-  }
-  
-  // Scroll to AL list when results are available
-  if (als.length > 0 && v3Elements.alList) {
-    setTimeout(() => {
-      v3Elements.alList.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 300);
-  }
-}
-
-// ===== EXPORT HANDLERS =====
-
-async function exportV3AL(alId, format) {
-  try {
-    showToast('Exporting', `Generating ${format.toUpperCase()}...`, 'info');
-
-    const res = await fetch(`${V3_CONFIG.apiBase}/export`, {
+  // ── API helpers ───────────────────────────────────────────
+  async function apiPost(url, body) {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: alId, format }),
+      body: JSON.stringify(body),
     });
-
-    if (!res.ok) throw new Error(`Export failed: ${res.statusText}`);
-
-    const data = await res.json();
-    if (!data.success || !data.downloadUrl) throw new Error(data.error || 'Export failed');
-
-    // Download file
-    const link = document.createElement('a');
-    link.href = data.downloadUrl;
-    link.download = data.fileName || `al-export.${format === 'json' ? 'json' : format === 'excel' ? 'xlsx' : 'pdf'}`;
-    link.click();
-
-    showToast('Success', `${format.toUpperCase()} exported`, 'success');
-  } catch (err) {
-    showToast('Error', err.message, 'error');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
   }
-}
 
-async function exportAllV3ALs() {
-  try {
-    showToast('Exporting', 'Generating Excel and PDF exports...', 'info');
+  async function apiGet(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
 
-    const res = await fetch(`${V3_CONFIG.apiBase}/als`);
-    if (!res.ok) throw new Error('Failed to fetch ALs');
+  // ── File → base64 ─────────────────────────────────────────
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
 
-    const data = await res.json();
-    const als = data.als || [];
+  // ── API Key ───────────────────────────────────────────────
+  if (els.apiKeyInput) {
+    els.apiKeyInput.value = state.apiKey;
+    updateKeyStatus();
+  }
 
-    if (als.length === 0) {
-      showToast('No Data', 'No ALs to export', 'warning');
+  if (els.saveKeyBtn) {
+    els.saveKeyBtn.addEventListener('click', () => {
+      const val = els.apiKeyInput.value.trim();
+      state.apiKey = val;
+      localStorage.setItem('bos-v3-apikey', val);
+      updateKeyStatus();
+      log(val ? 'API key saved — vision mode enabled' : 'API key cleared — OCR mode', 'success');
+    });
+  }
+
+  function updateKeyStatus() {
+    if (!els.keyStatus) return;
+    if (state.apiKey && state.apiKey.startsWith('sk-')) {
+      els.keyStatus.textContent = 'Vision IA active';
+      els.keyStatus.className = 'key-status key-ok';
+    } else {
+      els.keyStatus.textContent = 'OCR mode (no API key)';
+      els.keyStatus.className = 'key-status key-warn';
+    }
+  }
+
+  // ── Dropzone ──────────────────────────────────────────────
+  if (els.dropzone) {
+    els.dropzone.addEventListener('click', () => els.fileInput?.click());
+
+    els.dropzone.addEventListener('dragover', e => {
+      e.preventDefault();
+      els.dropzone.classList.add('drag-over');
+    });
+    els.dropzone.addEventListener('dragleave', () => {
+      els.dropzone.classList.remove('drag-over');
+    });
+    els.dropzone.addEventListener('drop', e => {
+      e.preventDefault();
+      els.dropzone.classList.remove('drag-over');
+      addFilesToQueue([...e.dataTransfer.files]);
+    });
+  }
+
+  if (els.fileInput) {
+    els.fileInput.addEventListener('change', () => {
+      addFilesToQueue([...els.fileInput.files]);
+      els.fileInput.value = '';
+    });
+  }
+
+  function addFilesToQueue(files) {
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    if (!imageFiles.length) { log('No image files found in selection', 'warn'); return; }
+
+    for (const file of imageFiles) {
+      state.queue.push({
+        id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        file,
+        name: file.name,
+        status: 'waiting', // waiting | processing | done | error
+        result: null,
+      });
+    }
+
+    log(`${imageFiles.length} file(s) added to queue`, 'success');
+    renderQueue();
+    updateProcessBtn();
+  }
+
+  function renderQueue() {
+    if (!els.queue || !els.queueList || !els.queueTitle) return;
+
+    if (state.queue.length === 0) {
+      els.queue.classList.add('hidden');
       return;
     }
 
-    // Export all to Excel
-    const excelRes = await fetch(`${V3_CONFIG.apiBase}/export`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: 'all', format: 'excel' }),
-    });
+    els.queue.classList.remove('hidden');
+    els.queueTitle.textContent = `${state.queue.length} fichier(s) en attente`;
 
-    if (excelRes.ok) {
-      const excelData = await excelRes.json();
-      if (excelData.downloadUrl) {
-        const link = document.createElement('a');
-        link.href = excelData.downloadUrl;
-        link.download = excelData.fileName || 'all-als.xlsx';
-        link.click();
+    els.queueList.innerHTML = state.queue.map(item => `
+      <div class="queue-item queue-item--${item.status}" data-qid="${item.id}">
+        <div class="queue-item-icon">${statusIcon(item.status)}</div>
+        <div class="queue-item-name">${escHtml(item.name)}</div>
+        <div class="queue-item-status">${statusLabel(item.status)}</div>
+        ${item.status === 'waiting' ?
+          `<button class="queue-remove-btn" data-qid="${item.id}">✕</button>` : ''}
+      </div>
+    `).join('');
+
+    // Wire remove buttons
+    els.queueList.querySelectorAll('.queue-remove-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const qid = btn.dataset.qid;
+        state.queue = state.queue.filter(i => i.id !== qid);
+        renderQueue();
+        updateProcessBtn();
+      });
+    });
+  }
+
+  function statusIcon(status) {
+    return { waiting: '○', processing: '◌', done: '●', error: '✕' }[status] || '○';
+  }
+  function statusLabel(status) {
+    return { waiting: 'En attente', processing: 'Traitement…', done: 'Traité', error: 'Erreur' }[status] || '';
+  }
+
+  function updateProcessBtn() {
+    if (!els.processBtn) return;
+    const waiting = state.queue.filter(i => i.status === 'waiting').length;
+    els.processBtn.disabled = waiting === 0;
+    els.processBtn.textContent = waiting > 0
+      ? `Analyser ${waiting} fichier(s)`
+      : 'Analyser';
+  }
+
+  if (els.clearQueue) {
+    els.clearQueue.addEventListener('click', () => {
+      state.queue = state.queue.filter(i => i.status !== 'waiting');
+      renderQueue();
+      updateProcessBtn();
+    });
+  }
+
+  // ── Process queue ─────────────────────────────────────────
+  if (els.processBtn) {
+    els.processBtn.addEventListener('click', processQueue);
+  }
+
+  async function processQueue() {
+    const toProcess = state.queue.filter(i => i.status === 'waiting');
+    if (!toProcess.length) return;
+
+    els.processBtn.disabled = true;
+    log(`Starting analysis of ${toProcess.length} file(s)…`);
+
+    for (const item of toProcess) {
+      item.status = 'processing';
+      renderQueue();
+      log(`Processing: ${item.name}…`);
+
+      try {
+        const dataUrl = await fileToBase64(item.file);
+        const result = await apiPost('/api/v3/upload', {
+          images: [{ dataUrl, name: item.name }],
+          apiKey: state.apiKey || undefined,
+        });
+
+        item.status = 'done';
+        item.result = result;
+        log(`Done: ${item.name} → ${result.title || result.alId}`, 'success');
+      } catch (err) {
+        item.status = 'error';
+        log(`Error: ${item.name} — ${err.message}`, 'error');
       }
+
+      renderQueue();
     }
 
-    showToast('Success', 'All exports complete', 'success');
-  } catch (err) {
-    showToast('Error', err.message, 'error');
-  }
-}
-
-// ===== EVENT LISTENERS =====
-
-function setupV3EventListeners() {
-  if (v3Elements.processAllBtn) {
-    v3Elements.processAllBtn.addEventListener('click', processAllV3Files);
+    log('All files processed — reloading AL list…', 'success');
+    await loadALs();
+    updateProcessBtn();
   }
 
-  if (v3Elements.clearQueueBtn) {
-    v3Elements.clearQueueBtn.addEventListener('click', () => {
-      v3State.fileQueue = v3State.fileQueue.filter((f) => f.status !== 'pending');
-      renderV3Queue();
-      updateV3Controls();
+  // ── Load ALs from server ──────────────────────────────────
+  async function loadALs() {
+    try {
+      const data = await apiGet('/api/v3/als');
+      state.als = data.als || [];
+      renderALList();
+      updateStats();
+      log(`${state.als.length} AL(s) loaded`, 'success');
+    } catch (err) {
+      log(`Failed to load ALs: ${err.message}`, 'error');
+    }
+  }
+
+  // ── Render AL cards ───────────────────────────────────────
+  function renderALList() {
+    if (!els.alList) return;
+
+    if (!state.als.length) {
+      els.alList.innerHTML = `
+        <div class="al-empty">
+          <div class="al-empty-icon">—</div>
+          <div class="al-empty-title">Aucune AL traitée</div>
+          <div class="al-empty-sub">Importez des photos et lancez l'analyse.</div>
+        </div>`;
+      return;
+    }
+
+    els.alList.innerHTML = state.als.map(al => renderALCard(al)).join('');
+
+    // Wire delete buttons
+    els.alList.querySelectorAll('.al-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Supprimer cette AL ?')) return;
+        try {
+          await fetch(`/api/v3/als/${btn.dataset.alid}`, { method: 'DELETE' });
+          state.als = state.als.filter(a => a.id !== btn.dataset.alid);
+          renderALList();
+          updateStats();
+        } catch (e) { log('Delete failed: ' + e.message, 'error'); }
+      });
+    });
+
+    // Wire expand buttons
+    els.alList.querySelectorAll('.al-expand-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const card = btn.closest('.al-card');
+        const body = card.querySelector('.al-card-body');
+        const isOpen = body.classList.toggle('al-card-body--open');
+        btn.textContent = isOpen ? 'Réduire' : 'Voir détails';
+      });
     });
   }
 
-  if (v3Elements.refreshStatusBtn) {
-    v3Elements.refreshStatusBtn.addEventListener('click', refreshV3Status);
+  function renderALCard(al) {
+    const flags = parseJson(al.quality_flags, []);
+    const oralBullets = parseJson(al.oral_bullets, []);
+    const hasOcr = al.source_text && al.source_text.length > 50;
+    const statusCls = hasOcr ? 'status-ok' : 'status-warn';
+    const statusTxt = hasOcr ? 'OCR OK' : 'OCR insuffisant';
+    const genreColor = { theatre: '#6B3FA0', poesie: '#1A5FA8', roman: '#8B2E45', general: '#2E6B4A' };
+    const gc = genreColor[al.genre] || genreColor.general;
+
+    return `
+      <div class="al-card" data-alid="${al.id}">
+        <div class="al-card-stripe" style="background:${gc}"></div>
+        <div class="al-card-header">
+          <div class="al-card-meta">
+            <span class="al-card-label">${escHtml(al.label || al.id)}</span>
+            <span class="al-card-genre" style="color:${gc}">${escHtml(al.genre || 'général')}</span>
+          </div>
+          <div class="al-card-title">${escHtml(al.title || 'Sans titre')}</div>
+          ${al.author ? `<div class="al-card-author">${escHtml(al.author)}</div>` : ''}
+          <div class="al-card-indicators">
+            <span class="al-indicator ${statusCls}">${statusTxt}</span>
+            ${flags.length ? `<span class="al-indicator status-warn">${flags.length} alerte(s)</span>` : ''}
+          </div>
+        </div>
+
+        <div class="al-card-body">
+          ${al.introduction ? `
+            <div class="al-section">
+              <div class="al-section-label">Introduction</div>
+              <div class="al-section-text" contenteditable="true" data-field="introduction" data-alid="${al.id}">${escHtml(al.introduction)}</div>
+            </div>` : ''}
+
+          <div class="al-section">
+            <div class="al-section-label">Mouvements</div>
+            <div class="al-movements" id="mov-${al.id}">
+              <div class="al-loading">Chargement…</div>
+            </div>
+          </div>
+
+          ${oralBullets.length ? `
+            <div class="al-section">
+              <div class="al-section-label">Bullets oraux</div>
+              <div class="al-bullets">
+                ${oralBullets.map(b => `<div class="al-bullet">${escHtml(b)}</div>`).join('')}
+              </div>
+            </div>` : ''}
+
+          ${al.conclusion ? `
+            <div class="al-section">
+              <div class="al-section-label">Conclusion</div>
+              <div class="al-section-text" contenteditable="true" data-field="conclusion" data-alid="${al.id}">${escHtml(al.conclusion)}</div>
+            </div>` : ''}
+
+          ${al.source_text ? `
+            <details class="al-source">
+              <summary>Texte OCR source</summary>
+              <pre class="al-source-text">${escHtml(al.source_text.slice(0, 500))}${al.source_text.length > 500 ? '…' : ''}</pre>
+            </details>` : ''}
+        </div>
+
+        <div class="al-card-footer">
+          <button class="al-expand-btn btn-text" data-alid="${al.id}">Voir détails</button>
+          <button class="al-export-btn btn-text" data-alid="${al.id}">Export Excel</button>
+          <button class="al-delete-btn btn-text btn-danger" data-alid="${al.id}">Supprimer</button>
+        </div>
+      </div>`;
   }
 
-  if (v3Elements.loadFlaggedBtn) {
-    v3Elements.loadFlaggedBtn.addEventListener('click', loadFlaggedItems);
-  }
+  // Load movements lazily when card is expanded
+  document.addEventListener('click', async e => {
+    const btn = e.target.closest('.al-expand-btn');
+    if (!btn) return;
+    const alid = btn.dataset.alid;
+    const movDiv = document.getElementById(`mov-${alid}`);
+    if (!movDiv || movDiv.dataset.loaded) return;
 
-  if (v3Elements.approveAllBtn) {
-    v3Elements.approveAllBtn.addEventListener('click', approveAllV3Flags);
-  }
-
-  if (v3Elements.exportExcelBtn) {
-    v3Elements.exportExcelBtn.addEventListener('click', () => {
-      if (v3State.processedALs.length > 0) {
-        exportAllV3ALs();
-      } else {
-        showToast('No Data', 'Process files first', 'warning');
-      }
-    });
-  }
-
-  if (v3Elements.exportPdfBtn) {
-    v3Elements.exportPdfBtn.addEventListener('click', () => {
-      showToast('Info', 'PDF export included in "Export All"', 'info');
-    });
-  }
-
-  if (v3Elements.exportJsonBtn) {
-    v3Elements.exportJsonBtn.addEventListener('click', () => {
-      showToast('Info', 'JSON export included in "Export All"', 'info');
-    });
-  }
-
-  if (v3Elements.exportAllBtn) {
-    v3Elements.exportAllBtn.addEventListener('click', exportAllV3ALs);
-  }
-
-  if (v3Elements.autoExportCheckbox) {
-    v3Elements.autoExportCheckbox.addEventListener('change', (e) => {
-      v3State.autoExport = e.target.checked;
-    });
-  }
-}
-
-// ===== INITIALIZATION =====
-
-function initV3Module() {
-  initV3Elements();
-  setupV3FileUpload();
-  setupV3EventListeners();
-  
-  // Initial load
-  console.log('[V3] Initializing module...');
-  refreshV3Status();
-  
-  // Auto-refresh when page becomes visible
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
-      console.log('[V3] Page became visible, refreshing...');
-      refreshV3Status();
+    try {
+      const al = await apiGet(`/api/v3/als/${alid}`);
+      movDiv.dataset.loaded = '1';
+      movDiv.innerHTML = renderMovements(al.movements || [], al.genre);
+    } catch (e) {
+      movDiv.innerHTML = `<div class="al-error">Erreur chargement: ${e.message}</div>`;
     }
   });
-  
-  // Periodic refresh every 10 seconds
-  setInterval(refreshV3Status, 10000);
-}
 
-// Initialize on page load
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initV3Module);
-} else {
-  initV3Module();
-}
+  function renderMovements(movements, genre) {
+    if (!movements.length) return '<div class="al-empty-sub">Aucun mouvement détecté</div>';
+    const gc = { theatre: '#6B3FA0', poesie: '#1A5FA8', roman: '#8B2E45', general: '#2E6B4A' };
+    const color = gc[genre] || gc.general;
+
+    return movements.map(mov => `
+      <div class="al-movement" style="border-left:3px solid ${color}">
+        <div class="al-movement-title" style="color:${color}">
+          ${escHtml(mov.title || `Mouvement ${mov.number}`)}
+          ${mov.lines ? `<span class="al-movement-lines">${escHtml(mov.lines)}</span>` : ''}
+        </div>
+        ${(mov.procedures || []).length ? `
+          <div class="al-procs">
+            ${(mov.procedures || []).map(p => `
+              <div class="al-proc al-proc--w${Math.min(p.weight || 3, 5)}">
+                <span class="al-proc-label">${escHtml(p.label)}</span>
+                ${p.quote ? `<span class="al-proc-quote">« ${escHtml(p.quote)} »</span>` : ''}
+                <span class="al-proc-analysis">${escHtml(p.analysis)}</span>
+                <span class="al-proc-weight">${'●'.repeat(p.weight || 3)}${'○'.repeat(5 - (p.weight || 3))}</span>
+              </div>`).join('')}
+          </div>` : '<div class="al-empty-sub">Procédés non détectés</div>'}
+      </div>`).join('');
+  }
+
+  // ── Stats ─────────────────────────────────────────────────
+  function updateStats() {
+    const total = state.als.length;
+    const ready = state.als.filter(a => {
+      const bullets = parseJson(a.oral_bullets, []);
+      return bullets.length >= 2;
+    }).length;
+    const flags = state.als.filter(a => parseJson(a.quality_flags, []).length > 0).length;
+
+    if (els.statTotal) els.statTotal.textContent = total;
+    if (els.statReady) els.statReady.textContent = ready;
+    if (els.statFlags) els.statFlags.textContent = flags;
+
+    // Update global header stats
+    const readyCount = document.getElementById('ready-count');
+    if (readyCount) readyCount.textContent = ready;
+  }
+
+  // ── Export ────────────────────────────────────────────────
+  if (els.exportAll) {
+    els.exportAll.addEventListener('click', async () => {
+      if (!state.als.length) { log('No ALs to export', 'warn'); return; }
+      els.exportAll.disabled = true;
+      els.exportAll.textContent = 'Export en cours…';
+      try {
+        const mode = els.exportMode?.value || 'minimalist';
+        const data = await apiPost('/api/v3/export', { mode });
+        if (els.downloadLink) {
+          els.downloadLink.href = data.downloadUrl;
+          els.downloadLink.download = data.fileName;
+          els.downloadLink.classList.remove('hidden');
+          els.downloadLink.click();
+        }
+        log(`Export ready: ${data.fileName}`, 'success');
+      } catch (e) {
+        log('Export failed: ' + e.message, 'error');
+      } finally {
+        els.exportAll.disabled = false;
+        els.exportAll.textContent = 'Export Excel — Toutes les AL';
+      }
+    });
+  }
+
+  // Per-AL export
+  document.addEventListener('click', async e => {
+    const btn = e.target.closest('.al-export-btn');
+    if (!btn) return;
+    const alid = btn.dataset.alid;
+    btn.textContent = 'Export…';
+    btn.disabled = true;
+    try {
+      const data = await apiPost('/api/v3/export', { alId: alid, mode: els.exportMode?.value || 'minimalist' });
+      if (els.downloadLink) {
+        els.downloadLink.href = data.downloadUrl;
+        els.downloadLink.download = data.fileName;
+        els.downloadLink.classList.remove('hidden');
+        els.downloadLink.click();
+      }
+      log(`Export: ${data.fileName}`, 'success');
+    } catch (err) {
+      log('Export failed: ' + err.message, 'error');
+    } finally {
+      btn.textContent = 'Export Excel';
+      btn.disabled = false;
+    }
+  });
+
+  // ── Inline editing auto-save ──────────────────────────────
+  document.addEventListener('blur', async e => {
+    const el = e.target.closest('[data-field][data-alid]');
+    if (!el) return;
+    const { field, alid } = el.dataset;
+    const value = el.textContent.trim();
+    try {
+      await fetch(`/api/v3/als/${alid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: value }),
+      });
+      log(`Saved: ${field}`, 'success');
+    } catch (e) { log('Save failed: ' + e.message, 'error'); }
+  }, true);
+
+  // ── Utilities ─────────────────────────────────────────────
+  function escHtml(str = '') {
+    return String(str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function parseJson(val, fallback) {
+    try { return JSON.parse(val || '[]'); } catch { return fallback; }
+  }
+
+  // ── Init ──────────────────────────────────────────────────
+  async function init() {
+    log('Bac Oral Studio V3 ready');
+    updateKeyStatus();
+
+    // Set V3 tab as default active
+    const v3Tab = document.querySelector('[data-tab="digitize"]');
+    const recapTab = document.querySelector('[data-tab="recap"]');
+    const v3Panel = document.getElementById('tab-digitize');
+    const recapPanel = document.getElementById('tab-recap');
+
+    if (v3Tab && v3Panel && recapTab && recapPanel) {
+      recapTab.classList.remove('active');
+      recapPanel.classList.remove('active');
+      v3Tab.classList.add('active');
+      v3Panel.classList.add('active');
+    }
+
+    await loadALs();
+  }
+
+  // Wait for DOM
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();

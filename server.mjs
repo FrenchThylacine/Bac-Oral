@@ -345,14 +345,17 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && pathname === "/api/v3/export") {
       const b = await readBody(req);
       const entries = b.alId ? [getAL(b.alId)].filter(Boolean) : getAllALs();
-      if (!entries.length) return sendJson(res, 404, { error: "No ALs to export" });
+      if (!entries.length) return sendJson(res, 404, { error: "No ALs" });
 
-      const file = await exportWorkbook({
-        project: { entries, sequences: [] },
-        scope: b.alId ? { type: "single", value: b.alId } : { type: "full" },
-        options: { mode: b.mode || "minimalist" },
-        outputDir: OUTPUT_DIR,
-      });
+      if (b.format === "pdf") {
+        const { exportPDF } = await import("./lib/v3-pdf-exporter.mjs");
+        const file = await exportPDF({ entries, outputDir: OUTPUT_DIR, alId: b.alId });
+        return sendJson(res, 200, { ...file, downloadUrl: `/outputs/${file.fileName}` });
+      }
+
+      const file = await exportWorkbook({ project: { entries, sequences: [] },
+        scope: b.alId ? { type:"single", value:b.alId } : { type:"full" },
+        options: { mode: b.mode || "minimalist" }, outputDir: OUTPUT_DIR });
       return sendJson(res, 200, { ...file, downloadUrl: `/outputs/${file.fileName}` });
     }
 
