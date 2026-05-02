@@ -334,6 +334,17 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, al);
     }
 
+    // ── V3 Update AL ──────────────────────────────────────────
+    if (req.method === "PUT" && pathname.startsWith("/api/v3/als/")) {
+      const id = pathname.replace("/api/v3/als/", "");
+      const body = await readBody(req);
+      const existing = getAL(id);
+      if (!existing) return notFound(res);
+      const updated = { ...existing, ...body, id };
+      storeAL(updated);
+      return sendJson(res, 200, { ok: true });
+    }
+
     // ── V3 Delete AL ──────────────────────────────────────────
     if (req.method === "DELETE" && pathname.startsWith("/api/v3/als/")) {
       const id = pathname.replace("/api/v3/als/", "");

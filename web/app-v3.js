@@ -303,6 +303,7 @@
   function renderALCard(al) {
     const flags = parseJson(al.quality_flags, []);
     const oralBullets = parseJson(al.oral_bullets, []);
+    const procCount = (al.movements || []).flatMap(m => m.procedures || []).length;
     const hasOcr = al.source_text && al.source_text.length > 50;
     const statusCls = hasOcr ? 'status-ok' : 'status-warn';
     const statusTxt = hasOcr ? 'OCR OK' : 'OCR insuffisant';
@@ -321,15 +322,24 @@
           ${al.author ? `<div class="al-card-author">${escHtml(al.author)}</div>` : ''}
           <div class="al-card-indicators">
             <span class="al-indicator ${statusCls}">${statusTxt}</span>
+            <span class="al-indicator status-info">${procCount} procédé(s)</span>
             ${flags.length ? `<span class="al-indicator status-warn">${flags.length} alerte(s)</span>` : ''}
           </div>
         </div>
 
-        <div class="al-card-body">
+        <div class="al-card-body al-card-body--open">
           ${al.introduction ? `
             <div class="al-section">
               <div class="al-section-label">Introduction</div>
-              <div class="al-section-text" contenteditable="true" data-field="introduction" data-alid="${al.id}">${escHtml(al.introduction)}</div>
+              <div class="al-section-text">
+                ${typeof al.introduction === 'object' ? `
+                  <ul class="al-intro-list">
+                    ${al.introduction.auteurContexte ? `<li>${escHtml(al.introduction.auteurContexte)}</li>` : ''}
+                    ${al.introduction.oeuvrePassage ? `<li>${escHtml(al.introduction.oeuvrePassage)}</li>` : ''}
+                    ${al.introduction.problematique ? `<li><strong>Problématique:</strong> ${escHtml(al.introduction.problematique)}</li>` : ''}
+                    ${al.introduction.annoncePlan ? `<li><strong>Plan:</strong> ${escHtml(al.introduction.annoncePlan)}</li>` : ''}
+                  </ul>` : escHtml(al.introduction)}
+              </div>
             </div>` : ''}
 
           <div class="al-section">
@@ -350,7 +360,14 @@
           ${al.conclusion ? `
             <div class="al-section">
               <div class="al-section-label">Conclusion</div>
-              <div class="al-section-text" contenteditable="true" data-field="conclusion" data-alid="${al.id}">${escHtml(al.conclusion)}</div>
+              <div class="al-section-text">
+                ${typeof al.conclusion === 'object' ? `
+                  <ul class="al-conclusion-list">
+                    ${al.conclusion.cheminement ? `<li>${escHtml(al.conclusion.cheminement)}</li>` : ''}
+                    ${al.conclusion.reponse ? `<li><strong>Réponse:</strong> ${escHtml(al.conclusion.reponse)}</li>` : ''}
+                    ${al.conclusion.ouverture ? `<li><strong>Ouverture:</strong> ${escHtml(al.conclusion.ouverture)}</li>` : ''}
+                  </ul>` : escHtml(al.conclusion)}
+              </div>
             </div>` : ''}
 
           ${al.source_text ? `
@@ -361,8 +378,9 @@
         </div>
 
         <div class="al-card-footer">
-          <button class="al-expand-btn btn-text" data-alid="${al.id}">Voir détails</button>
-          <button class="al-export-btn btn-text" data-alid="${al.id}">Export Excel</button>
+          <button class="al-expand-btn btn-text" data-alid="${al.id}">Réduire</button>
+          <button class="al-export-btn btn-text" data-alid="${al.id}" data-format="excel">Export Excel</button>
+          <button class="al-export-btn btn-text" data-alid="${al.id}" data-format="pdf">Export PDF</button>
           <button class="al-delete-btn btn-text btn-danger" data-alid="${al.id}">Supprimer</button>
         </div>
       </div>`;
@@ -394,16 +412,18 @@
       <div class="al-movement" style="border-left:3px solid ${color}">
         <div class="al-movement-title" style="color:${color}">
           ${escHtml(mov.title || `Mouvement ${mov.number}`)}
-          ${mov.lines ? `<span class="al-movement-lines">${escHtml(mov.lines)}</span>` : ''}
         </div>
+        ${mov.phraseTheme ? `<div class="al-movement-theme">${escHtml(mov.phraseTheme)}</div>` : ''}
         ${(mov.procedures || []).length ? `
           <div class="al-procs">
             ${(mov.procedures || []).map(p => `
               <div class="al-proc al-proc--w${Math.min(p.weight || 3, 5)}">
-                <span class="al-proc-label">${escHtml(p.label)}</span>
-                ${p.quote ? `<span class="al-proc-quote">« ${escHtml(p.quote)} »</span>` : ''}
-                <span class="al-proc-analysis">${escHtml(p.analysis)}</span>
-                <span class="al-proc-weight">${'●'.repeat(p.weight || 3)}${'○'.repeat(5 - (p.weight || 3))}</span>
+                <div class="al-proc-header">
+                  <span class="al-proc-label">${escHtml(p.label)}</span>
+                  <span class="al-proc-weight">${'●'.repeat(p.weight || 3)}${'○'.repeat(5 - (p.weight || 3))}</span>
+                </div>
+                ${p.quote ? `<div class="al-proc-quote">« ${escHtml(p.quote)} »</div>` : ''}
+                <div class="al-proc-analysis">${escHtml(p.analysis)}</div>
               </div>`).join('')}
           </div>` : '<div class="al-empty-sub">Procédés non détectés</div>'}
       </div>`).join('');
@@ -457,10 +477,15 @@
     const btn = e.target.closest('.al-export-btn');
     if (!btn) return;
     const alid = btn.dataset.alid;
+    const format = btn.dataset.format || 'excel';
+    const originalText = btn.textContent;
     btn.textContent = 'Export…';
     btn.disabled = true;
     try {
-      const data = await apiPost('/api/v3/export', { alId: alid, mode: els.exportMode?.value || 'minimalist' });
+      const payload = { alId: alid };
+      if (format === 'pdf') payload.format = 'pdf';
+      else payload.mode = els.exportMode?.value || 'minimalist';
+      const data = await apiPost('/api/v3/export', payload);
       if (els.downloadLink) {
         els.downloadLink.href = data.downloadUrl;
         els.downloadLink.download = data.fileName;
@@ -471,7 +496,7 @@
     } catch (err) {
       log('Export failed: ' + err.message, 'error');
     } finally {
-      btn.textContent = 'Export Excel';
+      btn.textContent = originalText;
       btn.disabled = false;
     }
   });
