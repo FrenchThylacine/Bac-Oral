@@ -303,6 +303,8 @@
   function renderALCard(al) {
     const flags = parseJson(al.quality_flags, []);
     const oralBullets = parseJson(al.oral_bullets, []);
+    const introduction = typeof al.introduction === 'string' ? parseJson(al.introduction, {}) : (al.introduction || {});
+    const conclusion = typeof al.conclusion === 'string' ? parseJson(al.conclusion, {}) : (al.conclusion || {});
     const procCount = (al.movements || []).flatMap(m => m.procedures || []).length;
     const hasOcr = al.source_text && al.source_text.length > 50;
     const statusCls = hasOcr ? 'status-ok' : 'status-warn';
@@ -328,17 +330,16 @@
         </div>
 
         <div class="al-card-body al-card-body--open">
-          ${al.introduction ? `
+          ${Object.keys(introduction).length ? `
             <div class="al-section">
               <div class="al-section-label">Introduction</div>
               <div class="al-section-text">
-                ${typeof al.introduction === 'object' ? `
-                  <ul class="al-intro-list">
-                    ${al.introduction.auteurContexte ? `<li>${escHtml(al.introduction.auteurContexte)}</li>` : ''}
-                    ${al.introduction.oeuvrePassage ? `<li>${escHtml(al.introduction.oeuvrePassage)}</li>` : ''}
-                    ${al.introduction.problematique ? `<li><strong>Problématique:</strong> ${escHtml(al.introduction.problematique)}</li>` : ''}
-                    ${al.introduction.annoncePlan ? `<li><strong>Plan:</strong> ${escHtml(al.introduction.annoncePlan)}</li>` : ''}
-                  </ul>` : escHtml(al.introduction)}
+                <ul class="al-intro-list">
+                  ${introduction.auteurContexte ? `<li>${escHtml(introduction.auteurContexte)}</li>` : ''}
+                  ${introduction.oeuvrePassage ? `<li>${escHtml(introduction.oeuvrePassage)}</li>` : ''}
+                  ${introduction.problematique ? `<li><strong>Problématique:</strong> ${escHtml(introduction.problematique)}</li>` : ''}
+                  ${introduction.annoncePlan ? `<li><strong>Plan:</strong> ${escHtml(introduction.annoncePlan)}</li>` : ''}
+                </ul>
               </div>
             </div>` : ''}
 
@@ -357,16 +358,15 @@
               </div>
             </div>` : ''}
 
-          ${al.conclusion ? `
+          ${Object.keys(conclusion).length ? `
             <div class="al-section">
               <div class="al-section-label">Conclusion</div>
               <div class="al-section-text">
-                ${typeof al.conclusion === 'object' ? `
-                  <ul class="al-conclusion-list">
-                    ${al.conclusion.cheminement ? `<li>${escHtml(al.conclusion.cheminement)}</li>` : ''}
-                    ${al.conclusion.reponse ? `<li><strong>Réponse:</strong> ${escHtml(al.conclusion.reponse)}</li>` : ''}
-                    ${al.conclusion.ouverture ? `<li><strong>Ouverture:</strong> ${escHtml(al.conclusion.ouverture)}</li>` : ''}
-                  </ul>` : escHtml(al.conclusion)}
+                <ul class="al-conclusion-list">
+                  ${conclusion.cheminement ? `<li>${escHtml(conclusion.cheminement)}</li>` : ''}
+                  ${conclusion.reponse ? `<li><strong>Réponse:</strong> ${escHtml(conclusion.reponse)}</li>` : ''}
+                  ${conclusion.ouverture ? `<li><strong>Ouverture:</strong> ${escHtml(conclusion.ouverture)}</li>` : ''}
+                </ul>
               </div>
             </div>` : ''}
 

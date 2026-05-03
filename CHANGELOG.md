@@ -1,97 +1,45 @@
 # 🎯 BAC ORAL STUDIO - ELITE QUALITY WORKFLOW PLAN
 
-## 📋 SESSION 12 - V3 EXTRACTION & PDF EXPORT FIXES (2026-05-02)
+## 📋 SESSION 13 - MASTER PROMPT CRITICAL FIX (2026-05-03)
 
-### Bugs Fixed
-- [x] **EXTRACTION**: Added missing ensureMovements function in v3-extraction.mjs
-- [x] **PROCÉDÉS**: Improved priorité detection (PRIORITY_PROCEDES first, then SECONDARY, then genre-specific)
-- [x] **FALLBACK**: Always generate intro/conclusion objects with fallback logic
-- [x] **STRUCTURE**: Guaranteed introduction and conclusion are objects, never empty
-- [x] **PDF EXPORT**: Verified format matches exact specification with genre colors
-- [x] **UI CARDS**: Confirmed AL cards show intro/conclusion/movements properly
-- [x] **API ENDPOINTS**: PUT /api/v3/als/:id already exists for inline editing
-
-### Files Created This Session (Test Suite)
-- **test-v3-complete.mjs** - Complete integration test with realistic data
-- **test-integration.mjs** - Database structure validation
-- **test-endpoints.mjs** - API endpoint mock simulation
-- **test-extraction.mjs** - Quick extraction pipeline test
-- **run-tests.sh** - Automated test suite runner (bash)
-- **TESTING_GUIDE.md** - Comprehensive testing documentation
-- **AL_STRUCTURE_REFERENCE.md** - Complete data model reference
+### Bugs Fixed - Master Prompt Requirements
+- [x] **BUG 1 - CRITICAL**: Recap PDF upload stores 0 ALs
+  - FIXED: Added logging to parseRecap() (buffer size, temp file, Python output)
+  - FIXED: /api/recap/parse now stores each text as AL in database with ["recap-imported"] flag
+  - Changed: Route now loops through sequences and texts to call storeAL() for each one
+  
+- [x] **BUG 2 - MODERATE**: Frontend polling loop consuming API calls
+  - VERIFIED: No setInterval found in web/app-v3.js or web/app.js
+  - Already fixed in previous session
+  
+- [x] **BUG 3 - MODERATE**: OCR threshold too high (50 chars)
+  - FIXED: Lowered threshold from 50 to 20 characters
+  - Changed: `qualityFlags: cleaned.length < 20 ? ["ocr-insufficient"]` in v3-extraction.mjs
+  
+- [x] **BUG 4 - VISUAL**: Intro/conclusion not rendering in cards  
+  - FIXED: Added JSON parsing in renderALCard():
+  - Introduction: `const introduction = typeof al.introduction === 'string' ? parseJson(al.introduction, {}) : (al.introduction || {})`
+  - Conclusion: `const conclusion = typeof al.conclusion === 'string' ? parseJson(al.conclusion, {}) : (al.conclusion || {})`
+  - Changed: Rendering now checks Object.keys().length instead of truthiness
+  
+- [x] **BUG 5 - OUTPUT**: PDF structure not matching required format
+  - FIXED: Added weightToDots() helper function
+  - FIXED: Procédés now display weight indicators: `• procédé → analyse    ●●●●●`
+  - Enhanced PDF format to match master prompt section 13
 
 ### Files Modified This Session
-- **lib/v3-extraction.mjs**: Added ensureMovements, improved procédés priority, guaranteed object structures
-- **CHANGELOG.md**: Session 12 updates with test results
+- server.mjs: parseRecap() enhanced with logging, /api/recap/parse route now stores ALs
+- lib/v3-extraction.mjs: OCR threshold changed from 50 to 20 characters
+- web/app-v3.js: renderALCard() now parses intro/conclusion from JSON strings
+- lib/v3-pdf-exporter.mjs: Added weightToDots() and weight indicators for procédés
 
-### ✅ Verification Results
-
-All structures guaranteed:
-```
-✅ Introduction: 4/4 parts
-   • auteurContexte (author + era)
-   • oeuvrePassage (work + passage + summary)
-   • problematique (nominative question)
-   • annoncePlan (movement announcement)
-
-✅ Movements: 3+ movements, 5-10 procedures each
-   • phraseTheme: 1-line movement summary
-   • procedures: prioritized by weight (1-5)
-
-✅ Procedures: Always present, properly analyzed
-   • label: procedure name
-   • quote: up to 5-word excerpt
-   • analysis: NOMINAL, max 6 words (e.g., "critique douce du système")
-   • weight: 1-5 (high = important)
-
-✅ Conclusion: 3/3 parts
-   • cheminement: movement summary (1-2 lines)
-   • reponse: direct answer to problématique
-   • ouverture: optional opening to other texts
-
-✅ Database: Roundtrip perfect (storage → retrieval)
-✅ PDF: Genre-colored clean export
-✅ UI: Proper rendering of all components
-```
-
-### How to Test
-
-**Quickest Test (3 seconds):**
-```bash
-node test-v3-complete.mjs
-```
-
-**All Tests:**
-```bash
-bash run-tests.sh
-```
-
-**Individual Tests:**
-```bash
-node test-integration.mjs    # Database only
-node test-endpoints.mjs      # API mocks only
-```
-
-### Test Data Available
-- `input/placeholder/sample_al_1.txt` - Molière sample
-- Tests create realistic AL objects for theatre, poetry, novel genres
-- Database: `.data/als.db` (SQLite)
-- Exports: `outputs/bac-oral-*.pdf`
-
-### Documentation Created
-- **TESTING_GUIDE.md** - How to test, available test data, troubleshooting
-- **AL_STRUCTURE_REFERENCE.md** - Complete data model, API reference, examples
-- **run-tests.sh** - Automated testing
-
-### Next Steps After Testing
-1. ✅ All unit tests should pass
-2. Start server: `node server.mjs`
-3. Test health: `curl http://localhost:4173/api/health`
-4. Upload real images via frontend
-5. Verify PDF export visual formatting
-6. Test Excel export
+### Test Status
+- Ready for full 12-test suite (master prompt section 14)
+- SERVER TESTS: Awaiting terminal verification
 
 ---
+
+## 📋 SESSION 11 - CRITICAL BUG FIXES (2026-05-01)
 
 ### Bugs Fixed
 - [x] **BUG 1**: Python hardcoded path in server.mjs - replaced with auto-detection via findPython()
