@@ -145,13 +145,28 @@ function spawnCmd(cmd, args) {
 // ── Recap parsing ────────────────────────────────────────────
 async function parseRecap(payload) {
   if (payload.manualText) {
+    console.log("[Recap] Manual text entry");
     return { fileName: "Saisie manuelle", sequenceCount: 0, sequences: [], textCount: 0 };
   }
-  const buf = dataUrlToBuffer(payload.fileBase64 || "");
+  const b64 = payload.fileBase64 || "";
+  console.log(`[Recap] b64 length: ${b64.length}, file: ${payload.fileName}`);
+  const buf = dataUrlToBuffer(b64);
+  console.log(`[Recap] buffer: ${buf.length} bytes`);
+  if (buf.length < 100) {
+    console.error("[Recap] Empty buffer — upload failed");
+    return { fileName: "", sequenceCount: 0, sequences: [], textCount: 0 };
+  }
   const tmp = await writeTempFile(payload.fileName || "recap.pdf", buf);
+  console.log(`[Recap] temp: ${tmp}`);
   try {
     const raw = await spawnCmd(PYTHON, [path.join(ROOT, "scripts", "extract_recap.py"), tmp]);
-    return JSON.parse(raw);
+    console.log(`[Recap] Python output: ${raw.slice(0, 300)}`);
+    const result = JSON.parse(raw);
+    console.log(`[Recap] sequences: ${result.sequenceCount}, ALs: ${result.textCount}`);
+    return result;
+  } catch(err) {
+    console.error(`[Recap] Python error: ${err.message}`);
+    return { fileName: payload.fileName || "", sequenceCount: 0, sequences: [], textCount: 0 };
   } finally {
     fs.unlink(tmp).catch(() => {});
   }
@@ -252,7 +267,37 @@ const server = http.createServer(async (req, res) => {
     // ── V1/V2 routes ─────────────────────────────────────────
     if (req.method === "POST" && pathname === "/api/recap/parse") {
       const b = await readBody(req);
-      return sendJson(res, 200, await parseRecap(b));
+      const recap = await parseRecap(b);
+      console.log(`[Recap] Parsed ${recap.sequenceCount} sequences, ${recap.textCount} texts`);
+
+      // Store each text as an AL in the database
+      let storedCount = 0;
+      for (const seq of recap.sequences || []) {
+        for (const text of seq.texts || []) {
+          try {
+            const al = {
+              id: text.id || `al-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              label: text.label || `AL ${storedCount + 1}`,
+              title: text.title || "",
+              author: text.author || seq.auteur || "",
+              genre: seq.genre || "general",
+              qualityFlags: ["recap-imported"],
+              introduction: {},
+              conclusion: {},
+              movements: [],
+              oralBullets: [],
+            };
+            storeAL(al);
+            storedCount++;
+            console.log(`[Recap] AL stored: ${al.label}`);
+          } catch (err) {
+            console.error(`[Recap] Failed to store AL: ${err.message}`);
+          }
+        }
+      }
+
+      console.log(`[Recap] Parsed ${recap.sequenceCount} sequences, stored ${storedCount} ALs`);
+      return sendJson(res, 200, { ...recap, storedCount });
     }
 
     if (req.method === "POST" && pathname === "/api/process") {

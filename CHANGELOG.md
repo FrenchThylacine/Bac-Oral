@@ -1,5 +1,44 @@
 # 🎯 BAC ORAL STUDIO - ELITE QUALITY WORKFLOW PLAN
 
+## 📋 SESSION 13 - MASTER PROMPT CRITICAL FIX (2026-05-03)
+
+### Bugs Fixed - Master Prompt Requirements
+- [x] **BUG 1 - CRITICAL**: Recap PDF upload stores 0 ALs
+  - FIXED: Added logging to parseRecap() (buffer size, temp file, Python output)
+  - FIXED: /api/recap/parse now stores each text as AL in database with ["recap-imported"] flag
+  - Changed: Route now loops through sequences and texts to call storeAL() for each one
+  
+- [x] **BUG 2 - MODERATE**: Frontend polling loop consuming API calls
+  - VERIFIED: No setInterval found in web/app-v3.js or web/app.js
+  - Already fixed in previous session
+  
+- [x] **BUG 3 - MODERATE**: OCR threshold too high (50 chars)
+  - FIXED: Lowered threshold from 50 to 20 characters
+  - Changed: `qualityFlags: cleaned.length < 20 ? ["ocr-insufficient"]` in v3-extraction.mjs
+  
+- [x] **BUG 4 - VISUAL**: Intro/conclusion not rendering in cards  
+  - FIXED: Added JSON parsing in renderALCard():
+  - Introduction: `const introduction = typeof al.introduction === 'string' ? parseJson(al.introduction, {}) : (al.introduction || {})`
+  - Conclusion: `const conclusion = typeof al.conclusion === 'string' ? parseJson(al.conclusion, {}) : (al.conclusion || {})`
+  - Changed: Rendering now checks Object.keys().length instead of truthiness
+  
+- [x] **BUG 5 - OUTPUT**: PDF structure not matching required format
+  - FIXED: Added weightToDots() helper function
+  - FIXED: Procédés now display weight indicators: `• procédé → analyse    ●●●●●`
+  - Enhanced PDF format to match master prompt section 13
+
+### Files Modified This Session
+- server.mjs: parseRecap() enhanced with logging, /api/recap/parse route now stores ALs
+- lib/v3-extraction.mjs: OCR threshold changed from 50 to 20 characters
+- web/app-v3.js: renderALCard() now parses intro/conclusion from JSON strings
+- lib/v3-pdf-exporter.mjs: Added weightToDots() and weight indicators for procédés
+
+### Test Status
+- Ready for full 12-test suite (master prompt section 14)
+- SERVER TESTS: Awaiting terminal verification
+
+---
+
 ## 📋 SESSION 11 - CRITICAL BUG FIXES (2026-05-01)
 
 ### Bugs Fixed
